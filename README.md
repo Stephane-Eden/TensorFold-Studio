@@ -2,7 +2,7 @@
 
 A web interface for [TensorFold](https://github.com/ashhart/TensorFold): pick a model that fits the machine, run it,
 watch it work, chat with it, teach it (Living Weights), measure it and connect tools to it, from a browser tab. In daily
-use on a Mac mini M6 (Metal) and two DGX Spark GB10 (CUDA) with TensorFold 1.0.7. Working name: the TensorFold name
+use on a Mac mini M6 (Metal) and two DGX Spark GB10 (CUDA) with TensorFold 1.0.9. Working name: the TensorFold name
 and logo are yours, and their use here is for you to agree to (`docs/questions-for-ash.md`, A1).
 
 `docs/features.md` describes every screen and the module behind it; `docs/questions-for-ash.md` lists what the Studio
@@ -20,7 +20,7 @@ tensorfold-studio --host 0.0.0.0 --token <secret>        # reachable from other 
 tensorfold-studio service install               # keep it running (launchd on macOS, a systemd user unit on Linux)
 ```
 
-Tests: `pytest` (335) and `cd ui && npm test`; lint: `ruff check`. The page is prebuilt in `studio/ui_dist/`, so running
+Tests: `pytest` (396) and `cd ui && npm test`; lint: `ruff check`. The page is prebuilt in `studio/ui_dist/`, so running
 the Studio needs no Node; to work on the page: `cd ui && npm install && npm run dev` (proxies `/api` and `/engine` to
 the Studio on 8090), then `npm run build` to refresh `studio/ui_dist/`.
 

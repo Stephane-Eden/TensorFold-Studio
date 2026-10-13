@@ -1,8 +1,8 @@
 # Questions, requests and bug reports for TensorFold
 
-What the Studio would like from the engine, checked against TensorFold 1.0.7 (11 to 13 October 2026). Items are
-numbered for reference (A1, B2…); the evidence for each (requests, logs, measurements) is kept and can be sent on
-request, or filed as GitHub issues if that suits you better.
+What the Studio would like from the engine, checked against TensorFold 1.0.7 (11 to 13 October 2026) and 1.0.9 (13
+October). Items are numbered for reference (A1, B2…); the evidence for each (requests, logs, measurements) is kept and can
+be sent on request, or filed as GitHub issues if that suits you better.
 
 ## A. Required to finish the Studio (publishing waits on these)
 
@@ -15,12 +15,10 @@ request, or filed as GitHub issues if that suits you better.
 
 | # | Question |
 |---|---|
-| B1 | **The 27B on the M6.** Nemotron runs natively on the Mac mini M6, but the 27B's loader refuses Metal generations past 17 (`QwenMetalQualificationRequired`), so the Mac stays on the Python line. Will the M6 be qualified, and what receipts would help? Could `capabilities` leave out a family the loader refuses on that chip? |
 | B2 | **A separate right to teach.** Anyone holding the engine's API key can call `/v1/slide/learn` or clear the graph. A second key (or `--slide-key`) would let a server give chat to tools without giving them the weights. The Studio guards its own side meanwhile |
-| B3 | **Codex.** Codex sends `include: ["reasoning.encrypted_content"]` on every request and TensorFold answers 400, so Codex cannot start. Could the server accept and ignore that value? |
 | B4 | **Claude Code on CUDA.** The GB10 admits a 16,384-token window by default; Claude Code's first request needs more and gets a 400. Could the CUDA default follow the memory left, as Metal's does, or the startup line say how to raise it? |
 | B5 | **Bonsai 2 and Gemma 4.** In what order and roughly when? The Studio drops its Python line once they are native |
-| B6 | **Log-probabilities on Metal**, and `prompt_logprobs` or `continue_final_message`, to measure a quantization's drift on a Mac and at every position |
+| B6 | **Log-probabilities on Metal**, and `prompt_logprobs` or `continue_final_message`, to measure a quantization's drift on a Mac and at every position (1.0.8 brought them on CUDA: streamed `logprobs` and `prompt_logprobs` on `/v1/completions`; Metal still to come) |
 | B7 | **Two DGX Spark paired**, as two Macs are in speed-up mode, or is it Mac-only by design? |
 
 ## C. Improvements (useful, not needed to finish)
@@ -50,8 +48,8 @@ All checked on 1.0.7.
 | D3 | **No memory in `/health` on Metal.** `"memory": {}` on a Mac (only CUDA fills it); `/memory` and `/metrics` have the footprint |
 | D4 | **`tensorfold models`** labels the 27B checkpoints `Qwen3.5-2B or Qwen3.8-27B (qwen3_5)`: it could tell them apart by geometry, as the loader does |
 | D6 | **A copy broke after a lesson kept in 6 rounds** (11 Oct, GB10, 1.0.7). After eight lessons in a row (seven taken out, each still logging "the learned neurons are in the model's shards (250 MB written)"), "My favorite food is steak tartar" was kept at round 6. From then on the copy degenerated within a few paragraphs, greedy too ("bestbonk", then ". . . **. He . . ." and "... ... ..."), and an earlier fact came back wrong ("Your favorite sport is flying the flag" for rowing). The untaught model on the other node wrote the same story cleanly. The copy held 9 learned facts, two of them contradictory (founded in 2019 / in Tallinn). The copy was deleted to start again; its engine log on node 2 has the lessons |
-| D5 | Living Weights, seen in trials (already in Ash's notes): with thinking on two kept facts came back as empty replies; a fact keyed on its subject does not answer the other direction; "I was born in Lisbon." is read as a fact about Lisbon and refused. Added 11 Oct evening, GB10: three plain personal facts in a row were taken out after 5 or 6 rounds each ("The user's dog is named Boogie", "I have a dog named Boogie", "My company's name is Eden": 1 of 4 held-out answers came back, 3 to 4 minutes each), while "My favourite sport is rowing" and "My cat is called Pixel" were kept the same day; the engine log of node 2 has the rounds |
-| D7 | **Sampling: no fresh randomness without a seed, and the penalties do nothing** (12 Oct, GB10, 1.0.7, Nemotron 3.5 Lightning). At temperature 1.5 with no `seed`, "Name a random animal, one word." gave "Hippopotamus" three times out of three, while seeds 1, 2 and 3 gave three different animals: an unseeded request seems to draw from a fixed seed. `repetition_penalty`, `frequency_penalty` and `presence_penalty` at 2.0 are accepted and change nothing (twenty "banana" in a row, greedy, same output with each). `top_k`, `min_p`, `seed` and `stop` work per request. The same on the Mac mini M6 with Qwen3.8-27B (Python line): "Owl" three times unseeded at 1.5, "Owl" and "Fox" with seeds 1 and 2, `repetition_penalty` 2.0 without effect |
+| D5 | Living Weights, seen in trials (already in Ash's notes): (1.0.8 reports these learned more reliably; not re-checked here) with thinking on two kept facts came back as empty replies; a fact keyed on its subject does not answer the other direction; "I was born in Lisbon." is read as a fact about Lisbon and refused. Added 11 Oct evening, GB10: three plain personal facts in a row were taken out after 5 or 6 rounds each ("The user's dog is named Boogie", "I have a dog named Boogie", "My company's name is Eden": 1 of 4 held-out answers came back, 3 to 4 minutes each), while "My favourite sport is rowing" and "My cat is called Pixel" were kept the same day; the engine log of node 2 has the rounds |
+| D7 | **Sampling: no fresh randomness without a seed, and the penalties do nothing** (still on 1.0.9 on 13 Oct, same answers; 12 Oct, GB10, 1.0.7, Nemotron 3.5 Lightning). At temperature 1.5 with no `seed`, "Name a random animal, one word." gave "Hippopotamus" three times out of three, while seeds 1, 2 and 3 gave three different animals: an unseeded request seems to draw from a fixed seed. `repetition_penalty`, `frequency_penalty` and `presence_penalty` at 2.0 are accepted and change nothing (twenty "banana" in a row, greedy, same output with each). `top_k`, `min_p`, `seed` and `stop` work per request. The same on the Mac mini M6 with Qwen3.8-27B (Python line): "Owl" three times unseeded at 1.5, "Owl" and "Fox" with seeds 1 and 2, `repetition_penalty` 2.0 without effect |
 
 ## E. For your information (no answer needed)
 
@@ -65,6 +63,6 @@ All checked on 1.0.7.
 
 ## F. Answered since (no need to ask again)
 
-`tensorfold pull` (fixed in 1.0.3; was the 8 October note's first point), the window in `/v1/models` (1.0.3),
+From 1.0.9 (13 Oct): the 27B serves natively on the M6 (B1, #643; on our Mac mini M6 32 GB with its DFlash2 drafter: exact, 27.4 tok/s with drafts and 9.8 without, against 30 to 32 with drafts on the Python line, 19.5 GiB in use, no swap, and no memory left for the prompt cache); `/v1/responses` accepts OpenAI's `include` values, so Codex's request is answered (B3, #759; the Studio's Connect test passes on node 2). `tensorfold pull` (fixed in 1.0.3; was the 8 October note's first point), the window in `/v1/models` (1.0.3),
 `/health` open with a key, the runtime block on streamed chat, the 27B native (1.0.3), Ampere 8.6 and Blackwell 12.0
 cards (1.0.3, 1.0.6), `response_format` and `tool_choice: "required"` (1.0.6).
