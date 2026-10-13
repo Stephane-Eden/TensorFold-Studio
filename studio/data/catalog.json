@@ -1,6 +1,6 @@
 {
  "updated": "2026-10-04",
- "note": "Curated metadata for the checkpoints TensorFold serves. Sizes are refreshed from Hugging Face when online; bytes_per_token values are estimates used for the context estimate. bytes_per_token for Gemma 4, Qwen3.8-27B and Bonsai 2 are the engine's own startup figures on a Mac mini M6 (TensorFold 0.6.5). workspace_bytes covers what the engine keeps beyond the files (fused projections, an MTP head) plus its prompt and draft work; the 27B's and Bonsai's values reproduce the context the engine admitted on that Mac (docs/benchmarks). Tags describe what TensorFold can serve from the checkpoint here, not the vendor's model card: 'vision' means TensorFold's --vision path reads images for this family.",
+ "note": "Curated metadata for the checkpoints TensorFold serves. Sizes are refreshed from Hugging Face when online; bytes_per_token values are estimates used for the context estimate. bytes_per_token for Gemma 4, Qwen3.8-27B and Bonsai 2 are the engine's own startup figures on a Mac mini M6 (TensorFold 0.6.5). workspace_bytes covers what the engine keeps beyond the files (fused projections, an MTP head) plus its prompt and draft work; the 27B's and Bonsai's values reproduce the context the engine admitted on that Mac. Tags describe what TensorFold can serve from the checkpoint here, not the vendor's model card: 'vision' means TensorFold's --vision path reads images for this family.",
  "models": [
   {
    "id": "mlx-community/gemma-4-26b-a4b-it-4bit",
