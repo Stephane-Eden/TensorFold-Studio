@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, authHeaders, download, shortName, type GraphFact, type LessonRecord, type LivingView, type PreviewFact } from '../api'
+import { api, download, shortName, type GraphFact, type LessonRecord, type LivingView, type PreviewFact } from '../api'
 import type { Ctx } from '../ctx'
 import { bytes, secs } from '../units'
 import { Checks, Measures, Versions } from './TeachKeep'
@@ -99,8 +99,7 @@ export default function Teach({ engine, toast, refreshEngine, stale }: Ctx) {
   const openView = async () => {
     const w = window.open('about:blank', '_blank')
     try {
-      const r = await fetch('/living-view/session', { method: 'POST', headers: authHeaders() })
-      if (!r.ok) throw new Error(`the Studio answered ${r.status}`)
+      await api.livingViewSession()
       if (w) w.location.href = '/living-view/'; else location.href = '/living-view/'
     } catch (e) { w?.close(); toast(`The view did not open: ${(e as Error).message}`, 'bad') }
   }
@@ -108,7 +107,11 @@ export default function Teach({ engine, toast, refreshEngine, stale }: Ctx) {
     try { await download(`/api/living/copies/${encodeURIComponent(n)}/card`, `${n}-model-card.md`) }
     catch (e) { toast(`Not downloaded: ${(e as Error).message}`, 'bad') }
   })
-  const keptByStudio = new Set((learned?.lessons ?? []).filter((x) => x.outcome === 'kept').map((x) => x.fact))
+  // a fact the Studio taught, found by the engine's id when the engine wrote it its own way ("The user has a dog…")
+  const taughtAs = (f: GraphFact): string | undefined => {
+    const kept = (learned?.lessons ?? []).filter((x) => x.outcome === 'kept' || x.outcome === 'partly kept')
+    return (kept.find((x) => x.found?.some((g) => g.id === f.id)) ?? kept.find((x) => x.fact === f.text))?.fact
+  }
   const jobSince = useElapsed(job?.started, job?.status === 'running')
   const choreSince = useElapsed(view?.chore?.started, view?.chore?.state === 'running')
   const copySince = useElapsed(view?.creating?.started, view?.creating?.state === 'copying')
@@ -127,7 +130,7 @@ export default function Teach({ engine, toast, refreshEngine, stale }: Ctx) {
         </> : <>
           <b>First, a copy that can learn</b>
           <p className="small muted">Teaching changes a copy of the AI, never the original. Make one from {view.bases.length ? <b>{view.base_names?.[base] ?? shortName(base)}</b> : 'a downloaded model'} (instant on a Mac; about 18 GB to write on Linux), then serve it and teach it.</p>
-          {!view.bases.length && <p className="small muted">No model that learns is on this machine yet. Only Nemotron 3.5 Lightning learns today (TensorFold 1.0.7), on a Mac or a GB10: get it from <a href="#models">Models</a>.</p>}
+          {!view.bases.length && <p className="small muted">No model that learns is on this machine yet. Only Nemotron 3.5 Lightning learns today, on a Mac or a GB10: get it from <a href="#models">Models</a>.</p>}
         </>}
         {!!view.bases.length && <div className="row" style={{ marginTop: 10 }}>
           {view.bases.length > 1 && <select className="sel" value={base} onChange={(e) => { setBase(e.target.value); setName(suggest(e.target.value, view.base_names)) }} aria-label="Model to copy">{view.bases.map((b) => <option key={b} value={b}>{view.base_names?.[b] ?? b}</option>)}</select>}
@@ -245,7 +248,8 @@ export default function Teach({ engine, toast, refreshEngine, stale }: Ctx) {
         {!!learned.facts.length && <div className="tablewrap"><table className="tbl">
           <thead><tr><th>Fact</th><th>State</th><th>Neurons</th><th>Checked with</th><th /></tr></thead>
           <tbody>{learned.facts.map((f) => <tr key={f.id}><td>{f.text}</td><td className={f.state === 'learned' ? 'good' : f.state === 'missed' ? 'bad' : ''}>{STATE[f.state] ?? f.state}</td><td>{f.neurons}</td><td className="small">{f.questions.slice(0, 3).join(' · ')}</td>
-            <td>{f.state === 'learned' && keptByStudio.has(f.text) && <button className="btn sm quiet" aria-busy={is(`forget:${f.text}`)} disabled={running} onClick={() => setAsk({ kind: 'forget', fact: f.text })}>Forget</button>}</td></tr>)}</tbody>
+            <td>{(() => { const taught = f.state === 'learned' ? taughtAs(f) : undefined
+              return taught && <button className="btn sm quiet" aria-busy={is(`forget:${taught}`)} disabled={running} onClick={() => setAsk({ kind: 'forget', fact: taught })}>Forget</button> })()}</td></tr>)}</tbody>
         </table></div>}
         <p className="small muted" style={{ marginBottom: 0 }}>Forget takes one fact out: the copy goes back to before that lesson, then learns the facts kept since again (2 to 3 minutes each). The Studio also keeps what it taught and the answers before and after ({learned.lessons.length} {learned.lessons.length === 1 ? 'entry' : 'entries'}).</p>
       </div>}

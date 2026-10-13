@@ -142,7 +142,7 @@ def save(name: str, label: str) -> dict:
             extras[kind] = path.read_text()
     m = {"id": time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4], "label": label[:120], "at": time.time(),
          "files": files, "stat": stat, "extras": extras, "new_bytes": new_bytes,
-         "kept": sum(1 for x in json.loads(extras.get("lessons") or "[]") if x.get("outcome") == "kept")}
+         "kept": sum(1 for x in json.loads(extras.get("lessons") or "[]") if x.get("outcome") in living.KEPT)}
     (_dir(name) / "manifests").mkdir(parents=True, exist_ok=True)
     _private(_dir(name) / "manifests" / f"{m['id']}.json", json.dumps(m))
     return public(m)
@@ -444,11 +444,11 @@ def fetch(get_manifest, get_file, new: str, origin: str) -> dict:
             raise RuntimeError("the copy changed on the other machine while it was fetched (a lesson?); try again")
         for kind, path in (("facts", living.graph_path(new)), ("lessons", living.meta_dir(new) / "lessons.json")):
             if kind in m["extras"]:
-                path.write_text(m["extras"][kind])
+                _private(path, m["extras"][kind])
         meta_path = living.meta_dir(new) / "meta.json"
         meta = json.loads(meta_path.read_text()) if meta_path.is_file() else {}
         meta["fetched_from"] = origin
-        meta_path.write_text(json.dumps(meta))
+        _private(meta_path, json.dumps(meta))
         living.unfinished(new).unlink()
     except Exception:
         living.remove(new)

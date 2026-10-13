@@ -111,7 +111,7 @@ export function PresetEditor({ preset, setPreset, mine, reload, toast }: {
                 <input className="input num" type="number" min={1} max={1000} step={1} value={preset.top_k ?? ''} placeholder="model" onChange={(e) => setPreset({ ...preset, top_k: num(e.target.value, true) })} /></Field>
               <Field label="min_p" help="Leave out a word less likely than this share of the best one; 0.05 is usual.">
                 <input className="input num" type="number" min={0} max={1} step={0.01} value={preset.min_p ?? ''} placeholder="model" onChange={(e) => setPreset({ ...preset, min_p: num(e.target.value) })} /></Field>
-              <Field label="seed" help="Makes the draw repeatable: the same seed and question give the same reply.">
+              <Field label="seed" help="Makes the draw repeatable: the same seed and question give the same reply. Left empty, the Studio draws a new one for each reply (kept with it), so asking again gives another answer.">
                 <input className="input num" type="number" min={0} step={1} value={preset.seed ?? ''} placeholder="none" onChange={(e) => setPreset({ ...preset, seed: num(e.target.value, true) })} /></Field>
             </div>
             <p className="small muted" style={{ margin: 0 }}>Repetition penalties are left out: TensorFold accepts them and does not apply them.</p>

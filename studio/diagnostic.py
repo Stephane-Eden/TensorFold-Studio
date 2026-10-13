@@ -229,7 +229,8 @@ def redact(text: str, secrets: list[str]) -> str:
 
     for s in secrets:
         if s and len(s) >= 6:
-            text = text.replace(s, "[redacted]")
+            for form in (s, json.dumps(s)[1:-1]):        # as written, and as it reads inside a JSON string
+                text = text.replace(form, "[redacted]")
     for pat in SECRET_PATTERNS:
         text = pat.sub(lambda m: m.group(1) + "[redacted]" + ("@" if m.group(0).endswith("@") else ""), text)
     return text

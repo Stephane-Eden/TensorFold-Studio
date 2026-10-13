@@ -65,7 +65,7 @@ export function ParallelPanel({ model, engine, sampling }: { model: string; engi
           if (c.usage) s.tokens = (c.usage as { completion_tokens?: number }).completion_tokens ?? s.tokens
           if (c.tensorfold) runtime = { ...(c.tensorfold as object), ...(c.speculative as object | undefined) } as typeof runtime
           const ch = (c.choices as { delta?: Record<string, string>; finish_reason?: string }[] | undefined)?.[0]
-          const piece = (ch?.delta?.content ?? '') + (ch?.delta?.reasoning_content ?? '')
+          const piece = (ch?.delta?.content ?? '') + (ch?.delta?.reasoning_content ?? ch?.delta?.reasoning ?? '')
           if (piece) { if (!s.tFirst) s.tFirst = performance.now(); s.counted += 1; if (ch?.delta?.content) s.text += ch.delta.content }
           if (ch?.finish_reason === 'length') s.outcome = 'length'
         }
@@ -87,7 +87,7 @@ export function ParallelPanel({ model, engine, sampling }: { model: string; engi
     if (!lines.length || running) return
     const c = new AbortController(); ctl.current = c
     live.current = Array.from({ length: n }, (_, i) => ({ prompt: lines[i % lines.length], text: '', tokens: 0, counted: 0, tFirst: 0, tEnd: 0, tps: null, ttft: null, outcome: 'running' }))
-    setSlots(live.current.map((x) => ({ ...x }))); setRunning(true)
+    setSlots(live.current.map((x) => ({ ...x }))); setRunning(true); setUncounted(false)
     t0.current = performance.now()
     await Promise.all(live.current.map((_, i) => one(i, c.signal)))
     const done = live.current.filter((s) => s.outcome === 'done' || s.outcome === 'length')
@@ -120,7 +120,7 @@ export function ParallelPanel({ model, engine, sampling }: { model: string; engi
       <label className="small">Prompts, one per line (taken in turn: {lines.length} for {n} {n === 1 ? 'request' : 'requests'})
         <textarea className="input" rows={3} value={prompts} onChange={(e) => setPrompts(e.target.value)} disabled={running} /></label>
       <p className="small muted" style={{ margin: 0 }}>
-        Uses this conversation's thinking setting, system prompt and temperature; replies are not kept.
+        Thinking {sampling.thinking === 'default' ? "as the model's default" : sampling.thinking}, {sampling.system ? 'the system prompt given' : 'no system prompt'}, {sampling.temperature != null ? `temperature ${sampling.temperature}` : "the model's own temperature"}; replies are not kept.
         {cap ? ` This engine serves up to ${cap} requests at once; more wait their turn.` : ''} Try 1 first: the table then shows what batching adds.
       </p>
       {slots.length > 0 && <>

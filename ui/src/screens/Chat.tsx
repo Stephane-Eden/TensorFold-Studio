@@ -10,6 +10,7 @@ import { Saves } from '../saves'
 import { ConversationList, namesOf, sameQuestions } from './ChatList'
 import { PRESETS, PresetEditor, sampling, usePresets, type Preset } from './ChatPresets'
 import { sseEvents } from '../sse'
+import { drawSeed } from '../seed'
 import { check, checkJson, DEFAULT_WORKSHOP, isLocal, parseTools, runLocal, toolChoice, WorkshopPanel, type Schema, type Workshop } from './ChatWorkshop'
 
 type Outcome = 'done' | 'stopped' | 'interrupted' | 'error' | 'length'
@@ -17,7 +18,7 @@ type Outcome = 'done' | 'stopped' | 'interrupted' | 'error' | 'length'
 // the workshop's messages: an assistant's tool calls (each checked against its tool), a tool's result, a JSON check
 type Call = { id: string; name: string; arguments: string; check?: string }
 // the settings a reply was written with, recorded on it: a replay or a speed-up check uses these, not today's options
-export type Request = { thinking: 'default' | 'on' | 'off'; budget: number | null; system: string; max_tokens: number | null; temperature: number | null; top_p?: number | null; top_k?: number | null; min_p?: number | null; seed?: number | null; stop?: string[] }
+export type Request = { thinking: 'default' | 'on' | 'off'; budget: number | null; system: string; max_tokens: number | null; temperature: number | null; top_p?: number | null; top_k?: number | null; min_p?: number | null; seed?: number | null; seed_drawn?: boolean; stop?: string[] }
 type Msg = { role: 'user' | 'assistant' | 'tool'; content: string; request?: Request; tool_calls?: Call[]; tool_call_id?: string; name?: string; json?: { ok: boolean; detail: string }; reasoning?: string; model?: string; engine?: string; thinking?: string; preset?: string; outcome?: Outcome; error?: string; stats?: Stats; at?: number }
 // `timing`: 'engine' when the reply's `tensorfold` block gave the speed and the first-token time, 'page' when this
 // page's clock did (other engines, or the Python line). `measured` says who counted the tokens.
@@ -219,6 +220,12 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
         : { role: m.role, content: m.content })]
   const workshopOn = ws.tools || ws.output !== 'text'
 
+  /** What a reply keeps of how it was asked: the request (with the seed the page drew, if any), so a replay and the
+   * speed-up check can ask it again the same way. */
+  const replyContext = (drawn: number | null) => {
+    const request: Request = { thinking, budget: thinking !== 'off' && budget ? budget : null, system: preset.system || '', max_tokens: preset.max_tokens ?? null, temperature: preset.temperature ?? null, top_p: preset.top_p ?? null, top_k: preset.top_k ?? null, min_p: preset.min_p ?? null, seed: preset.seed ?? drawn, ...(drawn != null ? { seed_drawn: true } : {}), stop: preset.stop?.filter(Boolean) ?? [] }
+    return { model, engine: engineLabel, thinking: thinking === 'off' ? 'off' : `${thinking}${budget ? `, up to ${budget}` : ''}`, preset: preset.name, at: Date.now() / 1000, request }
+  }
   /** A workshop turn: whole replies, tool calls checked, the page's own tools run by themselves, JSON checked. */
   // `continuing`: the turn goes on after tool results, so a forced tool choice is not forced again
   const workshopTurn = async (start: Msg[], continuing = false) => {
@@ -233,7 +240,10 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
       for (let round = 0; round < 6; round++) {
         const body: Record<string, unknown> = { model, stream: false, messages: toApi(history) }
         Object.assign(body, sampling(preset))
+        const drawn = drawSeed(preset)
+        if (drawn != null) body.seed = drawn
         if (thinking !== 'default') body.chat_template_kwargs = { enable_thinking: thinking === 'on' }
+        if (thinking !== 'off' && budget) body.thinking_budget = budget
         if (ws.tools && tools?.length) { body.tools = tools; body.tool_choice = toolChoice(ws, continuing ? round + 1 : round); if (ws.oneCall) body.parallel_tool_calls = false }
         const asked = ws.output === 'json' ? 'Reply with one JSON object only, no other text.'
           : ws.output === 'schema' ? `Reply with one JSON object only, no other text, matching this JSON schema:\n${JSON.stringify(schema)}` : ''
@@ -266,12 +276,12 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
           return { id: c.id, name: c.function.name, arguments: c.function.arguments, check: errs.length ? errs.join('; ') : undefined }
         })
         const n = d.usage?.completion_tokens ?? null
-        const reply: Msg = { role: 'assistant', content: m.content ?? '', reasoning: m.reasoning_content ?? m.reasoning ?? undefined, model, engine: engineLabel, at: Date.now() / 1000,
+        const reply: Msg = { role: 'assistant', content: m.content ?? '', reasoning: m.reasoning_content ?? m.reasoning ?? undefined, ...replyContext(drawn),
           outcome: d.choices?.[0]?.finish_reason === 'length' ? 'length' : 'done', tool_calls: calls.length ? calls : undefined,
           json: !calls.length && ws.output !== 'text' ? (() => { const j = checkJson(m.content ?? '', schema)
             return body.response_format ? j : { ...j, detail: `${j.detail} (asked in the prompt: this engine does not constrain replies to JSON)` } })() : undefined,
           stats: { tokens: n, tps: rt?.tokens_per_second ?? (n ? n / Math.max(0.001, (performance.now() - t0) / 1000) : null), ttft: rt?.time_to_first_token ?? 0, prompt: d.usage?.prompt_tokens,
-            measured: d.usage ? 'engine' : 'counted', timing: rt?.tokens_per_second != null ? 'engine' : 'page', sha: rt?.token_sha, drafts: rt?.drafts } }
+            measured: d.usage ? 'engine' : 'counted', timing: rt?.tokens_per_second != null ? 'engine' : 'page', sha: rt?.token_sha, drafts: rt?.drafts, acceptance: rt?.acceptance_rate ?? undefined } }
         history = [...history, reply]
         setMsgs(history)
         if (!calls.length) break
@@ -306,8 +316,8 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
     if (workshopOn) { const h = [...msgs, { role: 'user', content: t } as Msg]; setMsgs(h); return workshopTurn(h) }
     const mine = ++generation.current
     const history = [...msgs, { role: 'user', content: t } as Msg]
-    const request: Request = { thinking, budget: thinking !== 'off' && budget ? budget : null, system: preset.system || '', max_tokens: preset.max_tokens ?? null, temperature: preset.temperature ?? null, top_p: preset.top_p ?? null, top_k: preset.top_k ?? null, min_p: preset.min_p ?? null, seed: preset.seed ?? null, stop: preset.stop?.filter(Boolean) ?? [] }
-    const context = { model, engine: engineLabel, thinking: thinking === 'off' ? 'off' : `${thinking}${budget ? `, up to ${budget}` : ''}`, preset: preset.name, at: Date.now() / 1000, request }
+    const drawn = drawSeed(preset)
+    const context = replyContext(drawn)
     setMsgs([...history, { role: 'assistant', content: '', ...context }])
     setStreaming(true)
     const ctl = new AbortController(); abort.current = ctl
@@ -318,6 +328,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
     const body: Record<string, unknown> = { model, stream: true, stream_options: { include_usage: true },
       messages: toApi(history) }
     Object.assign(body, sampling(preset))
+    if (drawn != null) body.seed = drawn
     if (thinking !== 'default') body.chat_template_kwargs = { enable_thinking: thinking === 'on' }
     if (thinking !== 'off' && budget) body.thinking_budget = budget
     const current = () => generation.current === mine         // false once a new conversation replaced this one
@@ -344,7 +355,8 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
           if (chunk.tensorfold) runtime = { ...(chunk.tensorfold as Runtime), ...(chunk.speculative as Runtime | undefined) }
           const choice = (chunk.choices as { delta?: Record<string, string>; finish_reason?: string }[] | undefined)?.[0]
           const delta = choice?.delta ?? {}
-          if (delta.reasoning_content) { if (!tFirst) tFirst = performance.now(); counted += 1; reasoning += delta.reasoning_content }
+          const thought = delta.reasoning_content ?? delta.reasoning      // TensorFold's name, and other engines'
+          if (thought) { if (!tFirst) tFirst = performance.now(); counted += 1; reasoning += thought }
           if (delta.content) { if (!tFirst) tFirst = performance.now(); counted += 1; content += delta.content }
           if (choice?.finish_reason === 'length') outcome = 'length'
           else if (choice?.finish_reason === 'stop' && outcome === 'interrupted') outcome = 'done'

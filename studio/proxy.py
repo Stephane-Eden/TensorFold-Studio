@@ -24,6 +24,7 @@ ENGINE_AUTH = {"authorization", "x-api-key"}
 
 
 RELAYED = "x-tfs-relayed"                     # set on what the relay sends: seen again, it is the relay itself
+MAX_BODY = 64 * 1024 * 1024                   # a chat with images fits; a body meant to fill memory does not
 
 
 class Proxy:
@@ -53,9 +54,14 @@ class Proxy:
         url = base.rstrip("/") + "/" + path
         headers = self.upstream_headers(list(request.headers.items()), key, snapshot=True)
         params = [(k, v) for k, v in request.query_params.multi_items() if k not in STUDIO_PARAMS]
-        body = await request.body()
+        body = bytearray()
+        async for part in request.stream():           # read in parts: a body past the cap is refused before it is held
+            body += part
+            if len(body) > MAX_BODY:
+                return Response(content='{"error":{"message":"request body over the relay\'s 64 MiB"}}',
+                                status_code=413, media_type="application/json")
         try:
-            upstream = self._client.build_request(request.method, url, headers=headers, content=body, params=params)
+            upstream = self._client.build_request(request.method, url, headers=headers, content=bytes(body), params=params)
             resp = await self._client.send(upstream, stream=True)
         except httpx.HTTPError as exc:
             return Response(content=f'{{"error":{{"message":"engine unreachable: {exc}"}}}}', status_code=502,

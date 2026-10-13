@@ -183,6 +183,12 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         with settings_lock:
             settings_mod.save(dataclasses.replace(s, **committed))
 
+    def user_settings() -> dict:
+        """The settings as Settings shows them: the user's own while a comparison runs other configurations."""
+
+        with settings_lock:
+            return dataclasses.replace(s, **committed).to_dict(mask=True)
+
     start_lock = asyncio.Lock()                  # one start transaction at a time: settings, launch, save
     gate = Gate()                                # one change of the engine or its files at a time (see gate.py)
     app = FastAPI(title="TensorFold Studio", version=__version__,
@@ -309,6 +315,20 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         m = detect()
         return {"models": cat.view(m, fraction=s.budget_fraction), "sizes_known": bool(cat._sizes),
                 "refreshing": cat.refreshing, "refreshed_at": cat.refreshed_at}
+
+    @app.get("/api/catalog/{ref}/verdicts")
+    def copy_verdicts(ref: str):
+        """A Living Weights copy (``living:<name>``) takes the memory of the model it was copied from."""
+
+        if not ref.startswith(living.PREFIX):
+            raise HTTPException(404, "unknown model")
+        try:
+            base = living.base_of(ref.removeprefix(living.PREFIX), [])
+        except ValueError as exc:
+            raise HTTPException(404, "unknown copy") from exc
+        if not base or "/" not in base:
+            raise HTTPException(404, "the model this copy came from is not known")
+        return verdicts(*base.split("/", 1))
 
     @app.get("/api/catalog/{owner}/{name}/verdicts")
     def verdicts(owner: str, name: str):
@@ -944,7 +964,7 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
     # -- settings, connect ------------------------------------------------------------------
     @app.get("/api/settings")
     def get_settings():
-        return s.to_dict(mask=True)
+        return user_settings()
 
     @app.put("/api/settings")
     def put_settings(body: dict[str, Any]):
@@ -986,7 +1006,7 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         finally:
             if held:
                 gate.give()
-        return {**s.to_dict(mask=True), "key_pending_restart": eng.key_pending_restart()}
+        return {**user_settings(), "key_pending_restart": eng.key_pending_restart()}
 
     @app.post("/api/settings/api-key")
     def rotate_api_key():
@@ -1154,8 +1174,8 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
             raise HTTPException(400, str(exc)) from exc
 
     @app.delete("/api/brands/{brand_id}")
-    def brand_remove(brand_id: str):
-        if not makers.remove(brand_id):
+    def brand_remove(brand_id: str, kind: str | None = None):
+        if not makers.remove(brand_id, kind):
             raise HTTPException(404, "unknown maker")
         return {"removed": brand_id}
 
@@ -1185,7 +1205,9 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         c = connect_ctx(s.engine_url, h.model if h else None, share=s.share, api_key=eng.key_in_use())
         if where == "away":
             u = urlsplit(relay)
-            if u.scheme not in ("http", "https") or not u.netloc or len(relay) > 200:
+            # a name or address and a port, nothing else: the recipes paste it into a shell
+            if u.scheme not in ("http", "https") or len(relay) > 200 or u.path not in ("", "/") or u.query \
+                    or u.fragment or not re.fullmatch(r"(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:[0-9]{1,5})?", u.netloc):
                 raise HTTPException(400, "relay must be the Studio's own address, http(s)://name[:port]")
             base = f"{u.scheme}://{u.netloc}/engine"
             c = recipes.Ctx(base=base, key=s.api_key or eng.key_in_use() or "YOUR-KEY", model=c.model,
@@ -1344,7 +1366,7 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         checks, m, info = run_checks()
         doc = diagnostic.report(checks=checks, machine=m, info=info, settings=s.to_dict(mask=True),
                                 studio_version=__version__, log=list(eng.log), peers=peers.public(),
-                                usage=used.summary(30), secrets=[x for x in (token, s.api_key) if x])
+                                usage=used.summary(30), secrets=[x for x in (token, s.api_key, eng.key_in_use()) if x])
         name = f"tensorfold-studio-diagnostic-{m.get('hostname') or 'machine'}-{time.strftime('%Y%m%d-%H%M')}.json"
         return Response(json.dumps(doc, indent=1), media_type="application/json",
                         headers={"Content-Disposition": f'attachment; filename="{name}"'})
@@ -1517,7 +1539,7 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
             graph = json.loads(living.graph_path(name).read_text())
             kept = sum(1 for f in graph.get("facts") or [] if f.get("state") == "learned")
         except (OSError, ValueError):
-            kept = sum(1 for x in record if x.get("outcome") == "kept")
+            kept = sum(1 for x in record if x.get("outcome") in living.KEPT)
         return {"copy": name, "kept": kept, "lessons": len(record),
                 "last_lesson": record[-1]["job"] if record else None, "last_version": versions[-1]["id"] if versions
                 else None}
@@ -1947,6 +1969,8 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
                 raise HTTPException(409, f"{creating.get('name')} is being copied; wait for it")
             if chore.get("state") == "running":
                 raise HTTPException(409, f"{chore['kind']} of {chore['copy']} is going; wait for it")
+            if teacher.busy():                           # a lesson writes its version while the copy fills the disk
+                raise HTTPException(409, "a lesson is going; wait for it")
             creating.clear()
             creating.update(name=name, base=base, state="copying", started=time.time())
 
@@ -2014,6 +2038,8 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
             with chore_lock:                             # the same reservation as versions, restores and deletions
                 if chore.get("state") == "running":
                     raise HTTPException(409, f"{chore['kind']} of {chore['copy']} is going; wait for it")
+                if creating.get("state") == "copying":
+                    raise HTTPException(409, f"{creating.get('name')} is being copied; wait for it")
                 return teacher.start(copy, facts, str(body.get("source") or "studio")[:40],
                                      version_before=body.get("version_before", True) is not False,
                                      check=body.get("check", True) is not False).to_dict()

@@ -144,7 +144,7 @@ export type LivingView = { root: string; copies: LivingCopy[]; served: string | 
   creating: { name?: string; base?: string; state?: 'copying' | 'done' | 'failed'; error?: string; started?: number } }
 export type PreviewFact = { id: string; fact: string; subject: string; question: string; about_user: boolean; supported: boolean; now: string | null }
 export type GraphFact = { id: number; text: string; state: string; neurons: number; questions: string[]; source: string | null }
-export type LessonRecord = { job: string; at: number; source: string; fact: string; question: string; outcome: string; message: string | null; steps: number | null; seconds: number | null; before: string | null; after: string | null }
+export type LessonRecord = { job: string; at: number; source: string; fact: string; question: string; outcome: string; message: string | null; steps: number | null; seconds: number | null; before: string | null; after: string | null; found?: { id: number | null; text: string | null; outcome: string }[] }
 export type Conversation = { id: string; title: string; created: number; updated: number; messages: any[]; settings: Record<string, unknown>; rev?: number }
 // replaying a conversation on another configuration, and two conversations compared turn by turn
 export type ReplayTarget = { kind: 'served'; drafts: boolean } | { kind: 'address'; url: string; key?: string; model: string; label?: string }
@@ -327,7 +327,7 @@ export const api = {
   conversationFolderRename: (old: string, name: string) => j<{ name: string }>(`/api/conversation-folders/${encodeURIComponent(old)}`, { method: 'PUT', body: JSON.stringify({ name }) }),
   brands: () => j<{ brands: CustomBrand[] }>('/api/brands'),
   brandSave: (b: Omit<CustomBrand, 'logo'> & { logo?: string | null }) => j<CustomBrand>(`/api/brands/${b.id}`, { method: 'PUT', body: JSON.stringify(b) }),
-  brandRemove: (id: string) => j<{ removed: string }>(`/api/brands/${id}`, { method: 'DELETE' }),
+  brandRemove: (id: string, kind: CustomBrand['kind']) => j<{ removed: string }>(`/api/brands/${id}?kind=${kind}`, { method: 'DELETE' }),
   chatPresets: () => j<{ presets: ChatPreset[] }>('/api/chat-presets'),
   chatPresetSave: (preset: ChatPreset, replace = false) => j<ChatPreset>('/api/chat-presets', { method: 'POST', body: JSON.stringify({ preset, replace }) }),
   chatPresetRename: (name: string, to: string) => j<ChatPreset>(`/api/chat-presets/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify({ name: to }) }),
@@ -376,6 +376,8 @@ export const api = {
   livingFetch: (peer: string, name: string, as: string) => j<Chore>('/api/living/fetch', { method: 'POST', body: JSON.stringify({ peer, name, as }) }),
   livingCheckCompare: (name: string, rid: string, against: string) => j<CheckRunInfo & { compare: CheckRow[] }>(`/api/living/copies/${encodeURIComponent(name)}/checks/${rid}?against=${against}`),
   livingCancel: (now = false) => j<{ cancelling: boolean }>('/api/living/cancel', { method: 'POST', body: JSON.stringify({ now }) }),
+  // the token in a header, never in an address; a missing token asks for it, as every other call does
+  livingViewSession: () => j<{ ok: boolean }>('/living-view/session', { method: 'POST' }),
   livingFacts: (name: string) => j<{ facts: GraphFact[]; lessons: LessonRecord[] }>(`/api/living/copies/${encodeURIComponent(name)}/facts`),
   accessLink: () => j<{ code: string; expires_in: number }>('/api/access/link', { method: 'POST' }),
   fleetOpen: (id: string) => j<{ url: string; signed_in: boolean }>(`/api/fleet/${id}/open`, { method: 'POST' }, 20000),

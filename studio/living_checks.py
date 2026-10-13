@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path
 
 from . import living
+from .settings import write_private
 
 UNRELATED = ["What is the capital of Australia?", "What is 17 times 23?", "Name three primary colours.",
              "At what temperature does water boil at sea level, in Celsius?", "Who wrote Hamlet?",
@@ -122,7 +123,7 @@ def run(t: living.Target, name: str, label: str, *, thinking: bool = True, cance
            "thinking": thinking, "rows": rows}
     out["summary"] = summarise(out)
     _runs_dir(name).mkdir(parents=True, exist_ok=True)
-    (_runs_dir(name) / f"{out['id']}.json").write_text(json.dumps(out, ensure_ascii=False))
+    write_private(_runs_dir(name) / f"{out['id']}.json", json.dumps(out, ensure_ascii=False))   # the person's facts
     return out
 
 

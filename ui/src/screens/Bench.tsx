@@ -227,6 +227,7 @@ function LiveRun({ run, onStop }: { run: BenchRun; onStop: () => void }) {
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t) }, [])
   // the server's clock, as of the last poll: elapsed and left are counted on it, whatever this browser's clock says
   const offset = useMemo(() => (run.server_time ? run.server_time * 1000 - Date.now() : 0), [run.server_time])
+  useEffect(() => setNow(Date.now()), [offset])      // the offset taken now: the clock it applies to is now's too
   const serverNow = (now + offset) / 1000
   const p = run.progress
   const known = p.phase === 'measuring' && p.done > 0

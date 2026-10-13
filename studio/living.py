@@ -163,9 +163,11 @@ def create(name: str, base_repo: str, *, finish: bool = True) -> dict:
     writing into it (a fetch)."""
 
     dest = folder(name)
-    root().mkdir(parents=True, exist_ok=True)
+    if not root().is_dir():
+        root().mkdir(parents=True, exist_ok=True)
+        root().chmod(0o700)                            # learned weights hold what a person taught: theirs alone
     try:
-        dest.mkdir()                                   # the one atomic claim: two makers of one name, one folder
+        dest.mkdir(mode=0o700)                         # the one atomic claim: two makers of one name, one folder
     except FileExistsError:
         raise ValueError(f"a copy named {name} already exists") from None
     try:

@@ -8,6 +8,8 @@ also says where and when it was checked end to end with the real tool, or why it
 from __future__ import annotations
 
 import json
+import re
+import shlex
 import time
 from dataclasses import dataclass, field
 
@@ -63,6 +65,19 @@ class Recipe:
                 **({"compose": True} if self.id == "open-webui" and not c.away else {})}
 
 
+def _sh(value: str) -> str:
+    """A value pasted into a shell, quoted: a model's name comes from the engine, which may not be the Studio's."""
+
+    return shlex.quote(value)
+
+
+def _yaml(value: str) -> str:
+    """A YAML scalar: plain when it reads the same, quoted otherwise."""
+
+    return value if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/:@ ()+-]*", value) and ": " not in value \
+        and not value.endswith(" ") else json.dumps(value)
+
+
 def _key_line(c: Ctx, line: str) -> str:
     return line if c.key != "local" else ""
 
@@ -71,19 +86,19 @@ SNIPPETS = {
     "open-webui": lambda c: (
         "# Open WebUI in a container on that computer, using this AI through the Studio\n"
         "docker run -d --name tensorfold-open-webui -p 3000:8080 \\\n"
-        f"  -e OPENAI_API_BASE_URL={c.base}/v1 -e OPENAI_API_KEY={c.key} \\\n"
+        f"  -e {_sh('OPENAI_API_BASE_URL=' + c.base + '/v1')} -e {_sh('OPENAI_API_KEY=' + c.key)} \\\n"
         "  -e ENABLE_OLLAMA_API=false -v tensorfold-open-webui:/app/backend/data ghcr.io/open-webui/open-webui:main\n"
         "# then http://localhost:3000 on that computer") if c.away else (
         "# Open WebUI in a container on this machine, using the engine (compose file: Download below)\n"
         f"docker run -d --name tensorfold-open-webui --network host -e PORT=3000 \\\n"
-        f"  -e OPENAI_API_BASE_URL={c.base}/v1 -e OPENAI_API_KEY={c.key} \\\n"
+        f"  -e {_sh('OPENAI_API_BASE_URL=' + c.base + '/v1')} -e {_sh('OPENAI_API_KEY=' + c.key)} \\\n"
         "  -e ENABLE_OLLAMA_API=false -v tensorfold-open-webui:/app/backend/data ghcr.io/open-webui/open-webui:main\n"
         "# then http://localhost:3000; on a Mac, use -p 3000:8080 and http://host.docker.internal:"
         f"{c.base.rsplit(':', 1)[-1]}/v1 instead of --network host"),
     "librechat": lambda c: (
         "# librechat.yaml, in the custom endpoints\nendpoints:\n  custom:\n    - name: \"TensorFold\"\n"
-        f"      apiKey: \"{c.key}\"\n      baseURL: \"{c.docker_base or c.base}/v1\"\n"
-        f"      models:\n        default: [\"{c.model}\"]\n        fetch: true\n"
+        f"      apiKey: {json.dumps(c.key)}\n      baseURL: {json.dumps((c.docker_base or c.base) + '/v1')}\n"
+        f"      models:\n        default: [{json.dumps(c.model)}]\n        fetch: true\n"
         "      titleConvo: true\n      titleModel: \"current_model\"\n      modelDisplayLabel: \"TensorFold\""),
     "anythingllm": lambda c: (
         "# AnythingLLM: Settings > LLM Preference > Generic OpenAI, or in its .env\nLLM_PROVIDER=generic-openai\n"
@@ -94,7 +109,8 @@ SNIPPETS = {
         "Jan: Settings > Model Providers > Add provider (OpenAI-compatible)\n"
         f"Base URL   {c.base}/v1\nAPI key    {c.key}\nModel      {c.model}  (or Refresh to list it)"),
     "claude-code": lambda c: (
-        f"export ANTHROPIC_BASE_URL={c.base}\nexport ANTHROPIC_AUTH_TOKEN={c.key}\nexport ANTHROPIC_MODEL={c.model}\n"
+        f"export ANTHROPIC_BASE_URL={_sh(c.base)}\nexport ANTHROPIC_AUTH_TOKEN={_sh(c.key)}\n"
+        f"export ANTHROPIC_MODEL={_sh(c.model)}\n"
         "export ANTHROPIC_SMALL_FAST_MODEL=$ANTHROPIC_MODEL\nexport CLAUDE_CODE_ATTRIBUTION_HEADER=0\n"
         "export CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192   # its default asks 32k reply tokens on top of a 16k-token prompt\n"
         f"export CLAUDE_CODE_MAX_CONTEXT_TOKENS={c.window or 65536}  # the engine's window, for a model Claude Code "
@@ -123,10 +139,10 @@ SNIPPETS = {
         indent=2),
     "omp": lambda c: (
         "# ~/.omp/agent/models.yml\nproviders:\n  tensorfold:\n"
-        f"    baseUrl: {c.base}/v1\n    api: openai-completions\n    apiKey: {c.key}\n    models:\n"
-        f"      - id: {c.model}\n        name: {c.model} (TensorFold)\n"
+        f"    baseUrl: {_yaml(c.base + '/v1')}\n    api: openai-completions\n    apiKey: {_yaml(c.key)}\n    models:\n"
+        f"      - id: {_yaml(c.model)}\n        name: {_yaml(c.model + ' (TensorFold)')}\n"
         f"        contextWindow: {c.window or 65536}\n        maxTokens: 8192\n\n"
-        f"# ~/.omp/agent/config.yml\nmodelRoles:\n  default: tensorfold/{c.model}"),
+        f"# ~/.omp/agent/config.yml\nmodelRoles:\n  default: {_yaml('tensorfold/' + c.model)}"),
     "openfox": lambda c: json.dumps(
         {"providers": [{"id": "tensorfold", "name": "TensorFold", "url": f"{c.base}/v1", "backend": "vllm",
                         "apiKey": c.key, "isLocal": not c.away,
@@ -291,7 +307,7 @@ def compose(c: Ctx) -> str:
         "services:\n  open-webui:\n    image: ghcr.io/open-webui/open-webui:main\n"
         "    container_name: tensorfold-open-webui\n"
         "    network_mode: host\n    restart: unless-stopped\n    environment:\n      PORT: \"3000\"\n"
-        f"      OPENAI_API_BASE_URL: \"{c.base}/v1\"\n"
+        f"      OPENAI_API_BASE_URL: {json.dumps(c.base + '/v1')}\n"
         # the key stays out of a file that may be shared: compose reads it from the shell that starts it
         + ("      OPENAI_API_KEY: \"${TENSORFOLD_API_KEY:?export TENSORFOLD_API_KEY first: Connect shows it}\"\n"
            if c.key != "local" else "      OPENAI_API_KEY: \"local\"\n") +

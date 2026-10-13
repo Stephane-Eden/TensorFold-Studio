@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test tests/fuzzy.test.mjs tests/units.test.mjs tests/workshop.test.mjs tests/saves.test.mjs tests/brand.test.mjs tests/teachable.test.mjs"
+    "test": "node --experimental-strip-types --test tests/fuzzy.test.mjs tests/units.test.mjs tests/workshop.test.mjs tests/saves.test.mjs tests/brand.test.mjs tests/teachable.test.mjs tests/seed.test.mjs"
   },
   "dependencies": {
     "qrcode-generator": "^1.5.2",

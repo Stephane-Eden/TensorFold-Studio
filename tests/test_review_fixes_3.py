@@ -31,8 +31,8 @@ def test_n1_the_relay_reads_address_and_key_as_one():
         method, query_params = "GET", httpx.QueryParams()
         headers = httpx.Headers({"accept": "application/json"})
 
-        async def body(self):
-            return b""
+        async def stream(self):
+            yield b""
     asyncio.run(p.handle(Req(), "v1/models"))
     assert seen == [("old.test", "Bearer KEY-OLD")]
 

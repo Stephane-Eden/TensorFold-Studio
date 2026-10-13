@@ -40,7 +40,7 @@ export default function SettingsBrands({ toast, refreshBrands }: { toast: (t: st
     try { await api.brandSave(b); await reload(); toast(done); setDraft(null) } catch (e) { fail(e) }
   })
   const remove = (b: CustomBrand, done: string) => run(b.id, async () => {
-    try { await api.brandRemove(b.id); await reload(); toast(done) } catch (e) { fail(e) }
+    try { await api.brandRemove(b.id, b.kind); await reload(); toast(done) } catch (e) { fail(e) }
   })
   // a logo for a maker in the list: kept as a Settings entry of the same id, its words those of the entry if any
   const giveLogo = (b: Brand, kind: BrandKind) => { forLogo.current = { b, kind }; pick.current?.click() }

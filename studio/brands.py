@@ -110,20 +110,29 @@ class Brands:
         return self._read()
 
     def save(self, brand_id: str, body: object) -> dict:
+        """An entry is its id and its kind: NVIDIA makes models and hardware, and each has its own entry."""
+
+        kind = body.get("kind") if isinstance(body, dict) else None
+
+        def same(b: dict) -> bool:
+            return b["id"] == brand_id and b.get("kind") == kind
+
         with self._lock:
             brands = self._read()
-            known = next((b for b in brands if b["id"] == brand_id), None)
+            known = next((b for b in brands if same(b)), None)
             entry = clean(brand_id, body, known=known)
             if not known and len(brands) >= MAX_BRANDS:
                 raise Invalid(f"at most {MAX_BRANDS} makers")
-            brands = [entry if b["id"] == brand_id else b for b in brands] if known else [*brands, entry]
+            brands = [entry if same(b) else b for b in brands] if known else [*brands, entry]
             self._write(brands)
             return entry
 
-    def remove(self, brand_id: str) -> bool:
+    def remove(self, brand_id: str, kind: str | None = None) -> bool:
+        """The entry of that id and kind; without a kind (an older page), every entry of that id."""
+
         with self._lock:
             brands = self._read()
-            left = [b for b in brands if b["id"] != brand_id]
+            left = [b for b in brands if b["id"] != brand_id or (kind is not None and b.get("kind") != kind)]
             if len(left) == len(brands):
                 return False
             self._write(left)
