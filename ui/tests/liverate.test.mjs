@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { charsPerToken, DEFAULT_CHARS_PER_TOKEN, liveRate } from '../src/liverate.ts'
+import { charsPerToken, DEFAULT_CHARS_PER_TOKEN, liveRate, prefillRate } from '../src/liverate.ts'
 
 test('the ratio comes from the last reply the engine counted', () => {
   const msgs = [
@@ -19,4 +19,11 @@ test('the live speed counts text, not stream events', () => {
   assert.equal(Math.round(liveRate(1350, 2.4, 4.5)), 125)
   assert.equal(liveRate(1350, 0.1, 4.5), null)
   assert.equal(liveRate(0, 2, 4.5), null)
+})
+
+test("the prompt's reading speed counts only the tokens not restored from the cache", () => {
+  assert.equal(prefillRate({ prefill_seconds: 0.5 }, 1200, 200), 2000)
+  assert.equal(prefillRate({ prefill_seconds: 0.5 }, 1200, 1200), undefined)   // all from the cache: nothing read
+  assert.equal(prefillRate({}, 1200, 0), undefined)
+  assert.equal(prefillRate(undefined, 1200, 0), undefined)
 })

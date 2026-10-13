@@ -11,7 +11,8 @@ import { ConversationList, namesOf, sameQuestions } from './ChatList'
 import { PRESETS, PresetEditor, sampling, usePresets, type Preset } from './ChatPresets'
 import { sseEvents } from '../sse'
 import { drawSeed } from '../seed'
-import { charsPerToken, liveRate } from '../liverate'
+import { charsPerToken, prefillRate } from '../liverate'
+import { LivePills, WebSources, rate, secs, type Cortheon, type Live } from './ChatLive'
 import { check, checkJson, DEFAULT_WORKSHOP, isLocal, parseTools, runLocal, toolChoice, WorkshopPanel, type Schema, type Workshop } from './ChatWorkshop'
 
 type Outcome = 'done' | 'stopped' | 'interrupted' | 'error' | 'length'
@@ -21,8 +22,6 @@ type Call = { id: string; name: string; arguments: string; check?: string }
 // the settings a reply was written with, recorded on it: a replay or a speed-up check uses these, not today's options
 export type Request = { thinking: 'default' | 'on' | 'off'; budget: number | null; system: string; max_tokens: number | null; temperature: number | null; top_p?: number | null; top_k?: number | null; min_p?: number | null; seed?: number | null; seed_drawn?: boolean; stop?: string[] }
 type Msg = { role: 'user' | 'assistant' | 'tool'; content: string; request?: Request; tool_calls?: Call[]; tool_call_id?: string; name?: string; json?: { ok: boolean; detail: string }; reasoning?: string; model?: string; engine?: string; thinking?: string; preset?: string; outcome?: Outcome; error?: string; stats?: Stats; at?: number; cortheon?: Cortheon }
-// what Cortheon did for a reply (TensorFold 1.0.9 with --cortheon): its searches and the pages it read and cites
-type Cortheon = { task?: string; searches?: number; pages_read?: number; sources?: string[] }
 // `timing`: 'engine' when the reply's `tensorfold` block gave the speed and the first-token time, 'page' when this
 // page's clock did (other engines, or the Python line). `measured` says who counted the tokens.
 // tokens and tps only when the engine counted them; events: what the page received, each possibly several tokens
@@ -30,11 +29,6 @@ type Stats = { tokens: number | null; tps: number | null; events?: number; ttft:
   timing?: 'engine' | 'page'; budget?: number; sha?: string; drafts?: boolean; acceptance?: number; perRound?: number; prefill?: number }
 type Runtime = { tokens_per_second?: number; time_to_first_token?: number; token_sha?: string; drafts?: boolean; acceptance_rate?: number | null
   tokens_per_round?: number | null; prefill_seconds?: number }
-/** The prompt's reading speed, tokens a second: the tokens not restored from the cache over the engine's prompt pass. */
-const prefillRate = (rt: Runtime | undefined, prompt: number | undefined, cached: number | undefined) =>
-  rt?.prefill_seconds && prompt != null && prompt - (cached ?? 0) > 0 ? (prompt - (cached ?? 0)) / rt.prefill_seconds : undefined
-const secs = (s: number) => s < 1 ? `${Math.round(s * 1000)} ms` : `${s.toFixed(1)} s`
-const rate = (r: number) => r >= 10 ? `${Math.round(r)}` : r.toFixed(1)
 
 const STORE = 'tfs-chat-v2'
 const STORE_V1 = 'tfs-chat'                 // the first release's key: same shape, messages without a model name
@@ -57,34 +51,6 @@ function load(): Stored | null {
   } catch { return null }
 }
 
-
-type Live = { t0: number; tFirst: number; chars: number; ratio: number }
-/** The reply being written, as this page sees it: the first token's time once it came, and a live speed from the text
- * received (`liverate.ts`); the engine's own figures replace both when the reply ends. */
-function LivePills({ live }: { live: Live }) {
-  const [now, setNow] = useState(() => performance.now())
-  useEffect(() => { const t = setInterval(() => setNow(performance.now()), 250); return () => clearInterval(t) }, [])
-  const writing = live.tFirst ? Math.max(0.001, (Math.max(now, live.tFirst) - live.tFirst) / 1000) : 0
-  const speed = live.tFirst ? liveRate(live.chars, writing, live.ratio) : null
-  return (
-    <span className="speed now" aria-label="Speed of the reply being written">
-      <span className="pill ttft" title="Time to first token, measured by this page">first token <b>{live.tFirst ? secs((live.tFirst - live.t0) / 1000) : `${secs((now - live.t0) / 1000)}…`}</b></span>
-      {speed != null && <span className="pill tps" title={`Live, estimated from the text received at about ${live.ratio.toFixed(1)} characters a token (the last reply's, as the engine counted it); the engine's exact figure replaces it when the reply ends`}>≈ {rate(speed)} <b>tok/s</b></span>}
-    </span>
-  )
-}
-
-/** What Cortheon's web research did for a reply: how many searches and pages, and the sources it cites. */
-function WebSources({ c }: { c: Cortheon }) {
-  const sources = (c.sources ?? []).filter((u) => /^https?:\/\//.test(u))
-  if (!c.searches && !c.pages_read && !sources.length) return null
-  return (
-    <details className="websources small">
-      <summary>Web research: {c.searches ?? 0} {c.searches === 1 ? 'search' : 'searches'}, {c.pages_read ?? 0} {c.pages_read === 1 ? 'page' : 'pages'} read{sources.length ? `, ${sources.length} ${sources.length === 1 ? 'source' : 'sources'}` : ''}</summary>
-      {sources.length > 0 && <ul>{sources.map((u) => <li key={u}><a href={u} target="_blank" rel="noopener noreferrer">{u}</a></li>)}</ul>}
-    </details>
-  )
-}
 
 /** The text as it arrives, revealed at a pace that follows the stream, so it reads smoothly; at once when motion is
  * reduced or the reply is complete. */

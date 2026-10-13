@@ -21,3 +21,9 @@ export function charsPerToken(msgs: Reply[]): number {
 export function liveRate(chars: number, seconds: number, ratio: number): number | null {
   return seconds > 0.3 && chars > 0 ? chars / ratio / seconds : null
 }
+
+/** The prompt's reading speed, tokens a second: the tokens not restored from the cache over the engine's prompt pass. */
+export function prefillRate(rt: { prefill_seconds?: number } | undefined, prompt: number | undefined, cached: number | undefined): number | undefined {
+  const read = prompt != null ? prompt - (cached ?? 0) : 0
+  return rt?.prefill_seconds && read > 0 ? read / rt.prefill_seconds : undefined
+}
