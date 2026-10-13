@@ -158,7 +158,8 @@ class Replays:
                              "stats": {"tokens": mm["tokens"], "tps": mm["tps"], "ttft": mm["ttft"],
                                        "prompt": mm["prompt_tokens"], "measured": "engine" if rep.usage else "counted",
                                        "timing": "engine" if mm["timing"] == "engine" else "page", "sha": mm["sha"],
-                                       "drafts": (mm["runtime"] or {}).get("drafts")}}]
+                                       "drafts": (mm["runtime"] or {}).get("drafts"),
+                                       "drafted": (mm["runtime"] or {}).get("drafted")}}]
                     rev = self.chats.update(rid, {"messages": out}, rev=rev)["rev"]
                     self.current["done"] += 1
                 else:
@@ -198,9 +199,10 @@ def _same_tokens(ma: dict, mb: dict, asked_off: tuple[bool, bool]) -> bool | Non
     if not sa.get("sha") or not sb.get("sha"):
         return None
     for asked, st in zip(asked_off, (sa, sb)):    # each side as it was asked: off confirmed off, on confirmed on
-        if asked is True and st.get("drafts") is not False:
+        evidence = {"drafts": st.get("drafts"), "drafted": st.get("drafted")}   # the Bench's rules, contradictions too
+        if asked is True and not bench.drafts_off_confirmed(evidence):
             return None
-        if asked is False and st.get("drafts") is not True:
+        if asked is False and not bench.drafts_on_confirmed(evidence):
             return None
     return sa["sha"] == sb["sha"]
 

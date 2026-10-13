@@ -184,8 +184,10 @@ def findings(run: dict) -> list[str]:
                        f"{lc['items']} corrected facts.")
     load = (run.get("summary") or {}).get("load") or []
     if run.get("mode") == "load" and load:
-        one, best = load[0], max(load, key=lambda x: x.get("total_tps") or 0)
-        if best["concurrency"] > 1 and one.get("total_tps"):
+        # "alone" is the level of one request; a comparison only between levels that were measured
+        one = next((x for x in load if x["concurrency"] == 1), load[0])
+        best = max(load, key=lambda x: x.get("total_tps") or 0)
+        if best["concurrency"] > 1 and one.get("total_tps") and best.get("total_tps"):
             out.append(f"Serving several at once raises the total from {_tps(one['total_tps'])} tokens per second (one "
                        f"request) to {_tps(best['total_tps'])} at {best['concurrency']} at once, "
                        f"{best['total_tps'] / one['total_tps']:.1f}× as much.")
@@ -195,6 +197,9 @@ def findings(run: dict) -> list[str]:
         elif not any(x.get("total_tps") for x in load):
             out.append("The engine gave no token counts, so no total speed can be given: a stream event is not a "
                        "token.")
+        elif not one.get("total_tps"):
+            out.append("The speed of one request alone was not measured (no token counts), so nothing is said of what "
+                       "serving several at once adds.")
         else:
             out.append(f"Serving several at once does not raise the total: {_tps(one.get('total_tps'))} tokens per "
                        "second alone is the most this engine gives here.")

@@ -24,24 +24,30 @@ ENGINE_AUTH = {"authorization", "x-api-key"}
 
 
 class Proxy:
-    def __init__(self, engine_url_getter: Callable[[], str], api_key_getter: Callable[[], str | None] | None = None) -> None:
+    def __init__(self, engine_url_getter: Callable[[], str], api_key_getter: Callable[[], str | None] | None = None,
+                 target: Callable[[], tuple[str, str | None]] | None = None) -> None:
         self._url = engine_url_getter
         self._key = api_key_getter or (lambda: None)
+        # address and key read together, once per request: a change of engine midway never sends one's key to the other
+        self._target = target or (lambda: (self._url(), self._key()))
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=5.0))
 
-    def upstream_headers(self, incoming: list[tuple[str, str]]) -> dict[str, str]:
-        """The headers the engine gets: hop-by-hop and Studio credentials dropped, the engine's key enforced."""
+    def upstream_headers(self, incoming: list[tuple[str, str]], key: str | None = None, *,
+                         snapshot: bool = False) -> dict[str, str]:
+        """The headers the engine gets: hop-by-hop and Studio credentials dropped, the engine's key enforced
+        (``key`` from the request's own snapshot of the target, when ``snapshot``)."""
 
         headers = {k: v for k, v in incoming if k.lower() not in HOP and k.lower() not in STUDIO_HEADERS}
-        key = self._key()
+        key = key if snapshot else self._key()
         if key:
             headers = {k: v for k, v in headers.items() if k.lower() not in ENGINE_AUTH}
             headers["Authorization"] = f"Bearer {key}"        # the page never holds the engine's key itself
         return headers
 
     async def handle(self, request: Request, path: str) -> Response:
-        url = self._url().rstrip("/") + "/" + path
-        headers = self.upstream_headers(list(request.headers.items()))
+        base, key = self._target()
+        url = base.rstrip("/") + "/" + path
+        headers = self.upstream_headers(list(request.headers.items()), key, snapshot=True)
         params = [(k, v) for k, v in request.query_params.multi_items() if k not in STUDIO_PARAMS]
         body = await request.body()
         try:

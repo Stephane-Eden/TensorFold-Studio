@@ -163,7 +163,7 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
     eng.adopt()                                  # an engine a previous Studio started may still run
     cat = catalog or Catalog()
     dl = Downloads()
-    proxy = Proxy(lambda: s.engine_url, eng.key_in_use)
+    proxy = Proxy(lambda: s.engine_url, eng.key_in_use, target=lambda: eng.target()[1:])
     def bench_target() -> tuple[str, str | None, str | None]:
         h = eng.status()
         model = None

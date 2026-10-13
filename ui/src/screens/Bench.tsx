@@ -152,7 +152,8 @@ function LoadReport({ levels }: { levels: LoadLevel[] }) {
   const line = (k: 'total_tps' | 'per_request_tps') => pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p[k] ?? 0).toFixed(1)}`).join(' ')
   return <>
     <dl className="figures big">
-      <div><dt>Alone</dt><dd>{tps(pts[0].total_tps)} tok/s</dd></div>
+      {/* "alone" is the level of one request, measured; not the first level that happens to have a figure */}
+      <div><dt>Alone</dt><dd>{tps(levels.find((l) => l.concurrency === 1)?.total_tps ?? null)} tok/s</dd></div>
       <div><dt>Total at {best.concurrency} at once</dt><dd>{tps(best.total_tps)} tok/s</dd></div>
       <div><dt>Each, then</dt><dd>{tps(best.per_request_tps)} tok/s</dd></div>
       <div><dt>First token p95, then</dt><dd>{secs(best.ttft_p95)}</dd></div>
@@ -532,7 +533,7 @@ export default function Bench({ engine, toast, stale }: Ctx) {
                 <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label="Choose for a comparison" disabled={r.status === 'running'} checked={ticked.includes(r.id)}
                   onChange={(e) => setTicked((t) => e.target.checked ? [...t.filter((x) => x !== r.id), r.id].slice(-2) : t.filter((x) => x !== r.id))} /></td>
                 <td>{when(r.created)}</td><td>{KIND[r.mode].toLowerCase()}</td><td>{r.model}</td><td>{r.engine ?? '—'}</td>
-                <td>{r.mode === 'tools' ? (r.summary?.quality ? `${r.summary.quality.overall.passed}/${r.summary.quality.overall.items} passed` : '—') : r.mode === 'quality' ? (r.summary?.quality ? `${r.summary.quality.overall.passed}/${r.summary.quality.overall.items} right` : '—') : r.mode === 'kl' ? (r.kl?.mean_kl != null ? `KL ${r.kl.mean_kl.toFixed(4)}` : '—') : r.mode === 'load' ? (r.summary?.load?.length ? `${tps(Math.max(...r.summary.load.map((l) => l.total_tps ?? 0)))} total` : '—') : r.mode === 'prefill' ? (r.summary?.sweep?.length ? `${num(Math.round(r.summary.sweep.filter((p) => p.prefill_tps).slice(-1)[0]?.prefill_tps ?? 0))} prefill` : '—') : tps(r.summary?.overall.tps)}</td><td>{pct(r.summary?.overall.gain)}</td>
+                <td>{r.mode === 'tools' ? (r.summary?.quality ? `${r.summary.quality.overall.passed}/${r.summary.quality.overall.items} passed` : '—') : r.mode === 'quality' ? (r.summary?.quality ? `${r.summary.quality.overall.passed}/${r.summary.quality.overall.items} right` : '—') : r.mode === 'kl' ? (r.kl?.mean_kl != null ? `KL ${r.kl.mean_kl.toFixed(4)}` : '—') : r.mode === 'load' ? (r.summary?.load?.some((l) => l.total_tps != null) ? `${tps(Math.max(...r.summary.load.filter((l) => l.total_tps != null).map((l) => l.total_tps!)))} total` : '—') : r.mode === 'prefill' ? (r.summary?.sweep?.length ? `${num(Math.round(r.summary.sweep.filter((p) => p.prefill_tps).slice(-1)[0]?.prefill_tps ?? 0))} prefill` : '—') : tps(r.summary?.overall.tps)}</td><td>{pct(r.summary?.overall.gain)}</td>
                 <td>{r.summary?.overall.checked ? `${r.summary.overall.exact}/${r.summary.overall.checked}` : '—'}</td><td>{(STATUS[r.status] ?? r.status).toLowerCase()}</td>
               </tr>
             ))}</tbody>

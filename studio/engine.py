@@ -78,9 +78,10 @@ class Health:
     source: str = "health"                     # "health", or "metrics" when /health is bare behind an API key
     raw: dict | None = None
     error: str | None = None
+    generation: int | None = None              # the engine target it was read under (Engine.target)
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return {k: v for k, v in asdict(self).items() if k != "generation"}
 
 
 def _num(body: dict, *keys: str) -> float | None:
@@ -337,7 +338,7 @@ class Engine:
         self.kind: str | None = None             # "native" or "python": the engine an owned process runs
         self._stopping = False                   # a stop was asked: its exit code is not a failure
         self._rates_lock = threading.Lock()      # the counters' baseline, moved by one caller at a time
-        self._window_asked = False               # /tokenize asked once per target for the served window
+        self._window_asked: int | None = None    # the generation /tokenize was asked under, once per target
         # the engine's address and key change together, under this lock; each change is a new generation, and a
         # reading begun under an older one is read again rather than let out (see health())
         self.target_lock = threading.Lock()
@@ -435,7 +436,7 @@ class Engine:
             self.log.clear()
             self.startup = {}
             self._counters = None
-            self._window_asked = False
+            self._window_asked = None
             self.exit_code = None
             self._emit(f"[studio] $ {' '.join(cmd)}")
             for note in notes:
@@ -502,7 +503,7 @@ class Engine:
         self.startup = {} if not self.owned else self.startup
         self.last_health = None
         self._counters = None
-        self._window_asked = False
+        self._window_asked = None
 
     def _pump(self, child: _Child, log: Path, replay: bool) -> None:
         """Follows the log file while the engine runs; ``replay`` first reads what it wrote before this Studio.
@@ -646,24 +647,30 @@ class Engine:
                     h.totals = totals_of(m)
                     if m.get("mtp_drafted_total") and h.draft_acceptance is None:
                         h.draft_acceptance = min(1.0, max(0.0, m.get("mtp_accepted_total", 0.0) / m["mtp_drafted_total"]))
-        if h.ok and not h.context_length and "context_tokens" not in self.startup and not self._window_asked:
-            self._window_asked = True                 # the served window, once per target, when nothing else said it
+        if h.ok and not h.context_length and "context_tokens" not in self.startup and self._window_asked != gen:
+            self._window_asked = gen                  # the served window, once per target, when nothing else said it
             with contextlib.suppress(Exception):
                 r = self._client.post(base + "/tokenize", json={"model": h.model or "", "prompt": ""},
                                       headers=hdrs)
                 if r.status_code == 200 and isinstance(r.json().get("max_model_len"), int):
                     h.context_length = int(r.json()["max_model_len"])
-        if self.target()[0] != gen:                   # the target changed meanwhile: this answer is the old engine's
+        # published under the target lock, and only if the target is still the one read: a change of engine at any
+        # moment of this poll leaves nothing of the old engine behind (rates, the latest reading)
+        with self.target_lock:
+            current = self.generation == gen
+            if current:
+                if h.ok and h.counters:
+                    with self._rates_lock:           # the baseline is read and moved by one caller at a time
+                        h.decode_tps, h.prefill_tps = rates_from_counters(self._counters, h.counters)
+                        self._counters = h.counters
+                    drafted, accepted = h.counters.get("drafted_total"), h.counters.get("accepted_total")
+                    if drafted:
+                        h.draft_acceptance = min(1.0, max(0.0, (accepted or 0.0) / drafted))
+                h.generation = gen
+                self.last_health = h
+        if not current:                               # the target changed meanwhile: this answer is the old engine's
             return self.health(_depth + 1) if _depth < 3 else Health(ok=False, status="unreachable",
                                                            error="the engine's address keeps changing")
-        if h.ok and h.counters:
-            with self._rates_lock:                   # the baseline is read and moved by one caller at a time
-                h.decode_tps, h.prefill_tps = rates_from_counters(self._counters, h.counters)
-                self._counters = h.counters
-            drafted, accepted = h.counters.get("drafted_total"), h.counters.get("accepted_total")
-            if drafted:
-                h.draft_acceptance = min(1.0, max(0.0, (accepted or 0.0) / drafted))
-        self.last_health = h
         return h
 
     @staticmethod
@@ -697,10 +704,15 @@ class Engine:
             h.model = self.model
         return h
 
-    def info(self) -> dict:
-        h = self.status().to_dict()
-        if h.get("context_length"):                   # the CUDA server says it on every poll; keep the latest
-            self.startup["context_tokens"] = float(h["context_length"])
+    def info(self, _depth: int = 0) -> dict:
+        st = self.status()
+        with self.target_lock:                        # a reading of the engine replaced meanwhile is not described
+            stale = getattr(st, "generation", self.generation) != self.generation
+            if not stale and st.context_length:       # the CUDA server says it on every poll; keep the latest
+                self.startup["context_tokens"] = float(st.context_length)
+        if stale and _depth < 3:
+            return self.info(_depth + 1)
+        h = st.to_dict()
         h.update({"managed": not self.settings.remote, "owned": self.owned, "engine_url": self.settings.engine_url,
                   "model_repo": self.model if self.owned else None,
                   "started_at": self.started_at, "uptime_s": (time.time() - self.started_at) if self.started_at and

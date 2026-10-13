@@ -257,7 +257,7 @@ def _stream(client: httpx.Client, url: str, headers: dict, body: dict, cancel: t
                     data = "\n".join(line[5:].strip() for line in event.split("\n") if line.startswith("data:"))
                     if data == "[DONE]":
                         done = True
-                        continue
+                        break                           # the reply is whole: a server keeping the line open is not waited for
                     if not data:
                         continue
                     try:
@@ -293,7 +293,7 @@ def _stream(client: httpx.Client, url: str, headers: dict, body: dict, cancel: t
                                 on_text(rep)
                         if choice.get("finish_reason"):
                             rep.finish = choice["finish_reason"]
-                if rep.error:
+                if rep.error or done:                       # [DONE] ends the reading: the response is closed here
                     break
     except httpx.HTTPError as exc:
         rep.error = f"{type(exc).__name__}: {exc}"[:300]
@@ -311,6 +311,18 @@ def drafts_off_confirmed(runtime: dict) -> bool:
     if drafts is True or (isinstance(drafted, (int, float)) and drafted > 0):
         return False
     return drafts is False or drafted == 0
+
+
+def drafts_on_confirmed(runtime: dict) -> bool:
+    """Whether the engine's block says drafting ran: tokens drafted when it counts them, else drafts on. Without it,
+    two replies alike prove nothing about the speed-up, since neither may have used it."""
+
+    drafts, drafted = runtime.get("drafts"), runtime.get("drafted")
+    if drafts is False:
+        return False
+    if isinstance(drafted, (int, float)):
+        return drafted > 0
+    return drafts is True
 
 
 def thought(rep: Reply) -> bool:
@@ -1183,9 +1195,14 @@ class Bench:
                 if not draft and first is not None and not first.error and not rep.error:
                     # a reply counts as "the same without drafts" only when the engine says drafts were off (or
                     # drafted nothing); a reply with no runtime block at all may have ignored `"draft": false`
-                    off_known = drafts_off_confirmed(rep.runtime)
+                    # and the first reply ran with drafts: two replies written without them prove nothing of drafts
+                    off_known = drafts_off_confirmed(rep.runtime) and drafts_on_confirmed(first.runtime)
                     if rep.runtime.get("drafts") is True:
                         run["notes"].append(f"{prompt['id']}: the engine reported drafts on although draft=false was sent")
+                    if not drafts_on_confirmed(first.runtime):
+                        note = "the engine does not say drafts ran on the first reply: the exactness check is not counted"
+                        if note not in run["notes"]:
+                            run["notes"].append(note)
                     if off_known:
                         sha_a, sha_b = first.runtime.get("token_sha"), rep.runtime.get("token_sha")
                         r["same"] = (sha_a == sha_b) if sha_a and sha_b else (first.text == rep.text and bool(rep.text))

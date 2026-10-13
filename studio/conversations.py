@@ -332,9 +332,10 @@ def markdown(doc: dict) -> str:
         else:
             st = m.get("stats") or {}
             facts = [m.get("model") or "the model"]
-            if st.get("tps"):
+            counted_here = st.get("measured") == "counted"     # stream events, not tokens: no token figure from them
+            if st.get("tps") and not counted_here:
                 facts.append(f"{round(st['tps'])} tok/s")
-            if st.get("tokens"):
+            if st.get("tokens") and not counted_here:
                 facts.append(f"{st['tokens']} tokens")
             if m.get("outcome") and m["outcome"] != "done":
                 facts.append({"stopped": "stopped", "length": "cut at the reply limit", "error": "error",

@@ -21,7 +21,8 @@ export type Request = { thinking: 'default' | 'on' | 'off'; budget: number | nul
 type Msg = { role: 'user' | 'assistant' | 'tool'; content: string; request?: Request; tool_calls?: Call[]; tool_call_id?: string; name?: string; json?: { ok: boolean; detail: string }; reasoning?: string; model?: string; engine?: string; thinking?: string; preset?: string; outcome?: Outcome; error?: string; stats?: Stats; at?: number }
 // `timing`: 'engine' when the reply's `tensorfold` block gave the speed and the first-token time, 'page' when this
 // page's clock did (other engines, or the Python line). `measured` says who counted the tokens.
-type Stats = { tokens: number; tps: number; ttft: number; prompt?: number; cached?: number; reasoning?: number; measured: 'engine' | 'counted'
+// tokens and tps only when the engine counted them; events: what the page received, each possibly several tokens
+type Stats = { tokens: number | null; tps: number | null; events?: number; ttft: number; prompt?: number; cached?: number; reasoning?: number; measured: 'engine' | 'counted'
   timing?: 'engine' | 'page'; budget?: number; sha?: string; drafts?: boolean; acceptance?: number }
 type Runtime = { tokens_per_second?: number; time_to_first_token?: number; token_sha?: string; drafts?: boolean; acceptance_rate?: number | null }
 
@@ -88,10 +89,19 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
   const [q, setQ] = useState('')
   const opened = useRef<unknown[] | null>(null)            // the messages as last opened: not saved back unchanged
   const [more, setMore] = useState(false)                 // older conversations beyond the first page
-  const refreshList = useCallback((query = q) => api.conversations(query).then((r) => { setConvs(r.conversations); setMore(!!r.more) }).catch(() => {}), [q])
-  const loadMore = () => api.conversations(q, convs.filter((c) => !c.pinned).length).then((r) => {   // the offset counts the unpinned
-    setConvs((old) => [...old, ...r.conversations.filter((c) => !old.some((o) => o.id === c.id))]); setMore(!!r.more)
-  }).catch((e) => toast(String(e), 'bad'))
+  // each list asked (a search, a refresh) is a new generation: a page that comes back after it belongs to the old list
+  const listGen = useRef(0)
+  const refreshList = useCallback((query = q) => {
+    const gen = ++listGen.current
+    return api.conversations(query).then((r) => { if (gen !== listGen.current) return; setConvs(r.conversations); setMore(!!r.more) }).catch(() => {})
+  }, [q])
+  const loadMore = () => {
+    const gen = listGen.current
+    return api.conversations(q, convs.filter((c) => !c.pinned).length).then((r) => {   // the offset counts the unpinned
+      if (gen !== listGen.current) return
+      setConvs((old) => [...old, ...r.conversations.filter((c) => !old.some((o) => o.id === c.id))]); setMore(!!r.more)
+    }).catch((e) => toast(String(e), 'bad'))
+  }
   const [text, setText] = useState('')
   const [thinking, setThinking] = useState<'default' | 'on' | 'off'>(stored.current?.thinking ?? settings?.thinking ?? 'default')
   const [budget, setBudget] = useState<number>(stored.current?.budget ?? DEFAULT_BUDGET)
@@ -250,12 +260,12 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
           try { errs = def ? check(JSON.parse(c.function.arguments || '{}'), def.function.parameters) : ['no tool of this name'] } catch { errs = ['arguments are not JSON'] }
           return { id: c.id, name: c.function.name, arguments: c.function.arguments, check: errs.length ? errs.join('; ') : undefined }
         })
-        const n = d.usage?.completion_tokens ?? 0
+        const n = d.usage?.completion_tokens ?? null
         const reply: Msg = { role: 'assistant', content: m.content ?? '', reasoning: m.reasoning_content ?? m.reasoning ?? undefined, model, engine: engineLabel, at: Date.now() / 1000,
           outcome: d.choices?.[0]?.finish_reason === 'length' ? 'length' : 'done', tool_calls: calls.length ? calls : undefined,
           json: !calls.length && ws.output !== 'text' ? (() => { const j = checkJson(m.content ?? '', schema)
             return body.response_format ? j : { ...j, detail: `${j.detail} (asked in the prompt: this engine does not constrain replies to JSON)` } })() : undefined,
-          stats: { tokens: n, tps: rt?.tokens_per_second ?? n / Math.max(0.001, (performance.now() - t0) / 1000), ttft: rt?.time_to_first_token ?? 0, prompt: d.usage?.prompt_tokens,
+          stats: { tokens: n, tps: rt?.tokens_per_second ?? (n ? n / Math.max(0.001, (performance.now() - t0) / 1000) : null), ttft: rt?.time_to_first_token ?? 0, prompt: d.usage?.prompt_tokens,
             measured: d.usage ? 'engine' : 'counted', timing: rt?.tokens_per_second != null ? 'engine' : 'page', sha: rt?.token_sha, drafts: rt?.drafts } }
         history = [...history, reply]
         setMsgs(history)
@@ -337,10 +347,10 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
         }
       }
       const end = performance.now()
-      const n = usage?.completion_tokens ?? counted
+      const n = usage?.completion_tokens ?? null
       const fromEngine = runtime?.tokens_per_second != null && runtime?.time_to_first_token != null
-      const stats: Stats = { tokens: n,
-        tps: fromEngine ? runtime!.tokens_per_second! : tFirst ? n / Math.max(0.001, (end - tFirst) / 1000) : 0,
+      const stats: Stats = { tokens: n, events: counted,
+        tps: fromEngine ? runtime!.tokens_per_second! : tFirst && n ? n / Math.max(0.001, (end - tFirst) / 1000) : null,
         ttft: fromEngine ? runtime!.time_to_first_token! : ((tFirst || end) - t0) / 1000,
         prompt: usage?.prompt_tokens, cached: usage?.prompt_tokens_details?.cached_tokens, reasoning: usage?.completion_tokens_details?.reasoning_tokens,
         measured: usage ? 'engine' : 'counted', timing: fromEngine ? 'engine' : 'page',
@@ -410,7 +420,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
   const last = [...msgs].reverse().find((m) => m.role === 'assistant' && m.stats)
   // without the engine's usage figures the page only counts stream events, which are not tokens: no count of
   // tokens and no speed is claimed then
-  const amount = (st: Stats) => st.measured === 'engine' ? `${num(st.tokens)} tokens, ${Math.round(st.tps)} tok/s` : `${num(st.tokens)} stream events`
+  const amount = (st: Stats) => st.measured === 'engine' ? `${num(st.tokens)} tokens${st.tps != null ? `, ${Math.round(st.tps)} tok/s` : ''}` : `${num(st.events ?? st.tokens)} stream events`
   const where = engine?.managed === false ? `the engine at ${destination}` : 'the engine on this machine'
   const badge = (m: Msg) => m.outcome === 'stopped' ? 'stopped by you' : m.outcome === 'interrupted' ? 'connection lost before the end' : m.outcome === 'error' ? `error: ${m.error ?? 'unknown'}` : m.outcome === 'length' ? 'reached the reply limit' : null
 
@@ -447,7 +457,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
           <span className="right">
           {last?.stats && !streaming && <span className="speed" aria-label="Speed of the last reply">
             <span className="pill ttft" title="Time to first token: from sending the message to the first word of the reply">first token <b>{last.stats.ttft < 1 ? `${Math.round(last.stats.ttft * 1000)} ms` : `${last.stats.ttft.toFixed(1)} s`}</b></span>
-            {last.stats.measured === 'engine' && <span className="pill tps" title="Tokens a second while the reply was written">{last.stats.tps >= 10 ? Math.round(last.stats.tps) : last.stats.tps.toFixed(1)} <b>tok/s</b></span>}
+            {last.stats.measured === 'engine' && last.stats.tps != null && <span className="pill tps" title="Tokens a second while the reply was written">{last.stats.tps >= 10 ? Math.round(last.stats.tps) : last.stats.tps.toFixed(1)} <b>tok/s</b></span>}
           </span>}
           <span className="count">{msgs.length ? `${msgs.length} messages` : ''}</span>
           </span>
@@ -512,8 +522,8 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
         {last?.stats && (
           <div className="replybar num">
             {last.stats.measured === 'engine'
-              ? <><span>Last reply <b>{num(last.stats.tokens)} tokens</b>{last.stats.reasoning ? ` (${num(last.stats.reasoning)} thinking${last.stats.budget && last.stats.reasoning >= last.stats.budget ? ', cut at the budget' : ''})` : ''}</span><span><b>{Math.round(last.stats.tps)} tok/s</b></span></>
-              : <span>Last reply <b>{num(last.stats.tokens)} stream events</b></span>}
+              ? <><span>Last reply <b>{num(last.stats.tokens)} tokens</b>{last.stats.reasoning ? ` (${num(last.stats.reasoning)} thinking${last.stats.budget && last.stats.reasoning >= last.stats.budget ? ', cut at the budget' : ''})` : ''}</span>{last.stats.tps != null && <span><b>{Math.round(last.stats.tps)} tok/s</b></span>}</>
+              : <span>Last reply <b>{num(last.stats.events ?? last.stats.tokens)} stream events</b></span>}
             <span>first token after <b>{last.stats.ttft < 1 ? `${Math.round(last.stats.ttft * 1000)} ms` : `${last.stats.ttft.toFixed(1)} s`}</b></span>
             {last.stats.prompt != null && <span>prompt <b>{num(last.stats.prompt)} tokens</b>{last.stats.cached != null ? `, ${num(last.stats.cached)} from cache` : ''}</span>}
             {last.stats.drafts != null && <span>drafts <b>{last.stats.drafts ? 'on' : 'off'}</b>{last.stats.acceptance != null ? `, ${Math.round(last.stats.acceptance * 100)}% kept` : ''}</span>}
