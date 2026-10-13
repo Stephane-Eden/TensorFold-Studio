@@ -224,12 +224,13 @@ RECIPES = [
                            "wrote the file asked through its write tool, 15 s (also on the Mac mini M6, 10 Oct)"}),
     Recipe("codex", "Codex CLI", "agent", "responses",
            "Codex speaks only the Responses API (wire_api = \"chat\" is gone), and asks for "
-           "include: [\"reasoning.encrypted_content\"] on every request, which TensorFold (1.0.7 too) refuses: until the "
-           "engine accepts and ignores it, Codex stops at its first request. The test sends Codex's own request.",
+           "include: [\"reasoning.encrypted_content\"] on every request: TensorFold accepts and ignores it from 1.0.9 "
+           "(earlier versions refuse it, and Codex stops at its first request). It needs a window of 32k tokens or "
+           "more (Longest conversation in Settings). The test sends Codex's own request.",
            ("context", "responses"), extra={"min_context": 32768, "codex_shape": True},
-           checked={"not": "Codex 0.162.1 stops at its first request: TensorFold refuses include "
-                           "reasoning.encrypted_content with a 400 (1.0.2 and 1.0.4 on the Mac, 1.0.7 on node 2 on 12 "
-                           "Oct); reported for Ash"}),
+           checked={"not": "Codex itself not run here; its own request (stateless, include "
+                           "reasoning.encrypted_content) is answered by TensorFold 1.0.9 on node 2 (13 Oct), where "
+                           "1.0.2 to 1.0.7 refused it with a 400"}),
     Recipe("pi", "Pi", "agent", "openai",
            "A small coding agent for the terminal: this provider in ~/.pi/agent/models.json, then pi --model "
            "tensorfold/<the model>. Its prompts need a window of 32k or more.", ("models", "chat_stream", "tool_call", "context"), extra={"min_context": 32768},
