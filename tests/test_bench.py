@@ -268,15 +268,15 @@ def test_energy_cost_at_the_price_set():
 
 def test_nvidia_throttle_reasons_with_either_field_name(monkeypatch):
     class Done:
-        def __init__(self, out):
-            self.stdout = out
+        def __init__(self, out, err=""):
+            self.stdout, self.stderr = out, err
 
     asked = []
 
     def run(cmd, **_):
         asked.append(cmd[1])
-        if "clocks_event_reasons" in cmd[1]:
-            return Done("")                                   # an older driver: the field is unknown
+        if "clocks_event_reasons" in cmd[1]:                  # an older driver: the field is unknown, and says so
+            return Done("", 'Field "clocks_event_reasons.active" is not a valid field to query.')
         return Done("30.5, 61, 0x0000000000000024\n")         # power cap and software thermal
 
     monkeypatch.setattr(power.subprocess, "run", run)

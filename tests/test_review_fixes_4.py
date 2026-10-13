@@ -14,8 +14,8 @@ def test_1_info_never_describes_a_replaced_engine_with_the_old_ones_model():
     eng = Engine(s)
     real_status = eng.status
 
-    def status_then_switch():
-        st = real_status()
+    def status_then_switch(*a, **k):
+        st = real_status(*a, **k)
         if s.engine_url == "http://old.test:8080":           # the engine is replaced right after the reading
             with eng.target_lock:
                 s.engine_url = "http://new.test:8080"

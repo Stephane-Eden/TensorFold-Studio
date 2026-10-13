@@ -138,7 +138,9 @@ def plan(*, port: int = 8090, host: str = "127.0.0.1", token_file: Path | None =
 def _quote(arg: str) -> str:
     """systemd's own quoting: a path with a space ("Application Support") in double quotes."""
 
-    return f'"{arg}"' if any(c in arg for c in ' "\\') else arg
+    if not any(c in arg for c in ' "\\'):
+        return arg
+    return '"' + arg.replace("\\", "\\\\").replace('"', '\\"') + '"'     # a quote or backslash inside, escaped
 
 
 def lingering() -> bool:
@@ -186,7 +188,8 @@ def install(p: Plan, *, start: bool = True) -> list[str]:
     p.path.parent.mkdir(parents=True, exist_ok=True)
     changed = not p.path.exists() or p.path.read_text() != p.content
     if changed:
-        p.path.write_text(p.content)
+        # readable by this user only: the agent carries studio.env's variables (a Hugging Face token among them)
+        settings_mod.write_private(p.path, p.content)
         done.append(f"wrote {p.path}")
     if p.platform == "macos":
         logs = Path.home() / "Library" / "Logs" / "TensorFold Studio"

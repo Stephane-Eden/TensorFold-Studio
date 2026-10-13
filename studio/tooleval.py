@@ -9,6 +9,7 @@ or the Bench's Install button, which runs the same with the version the Studio's
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -119,6 +120,8 @@ class Run:
                     self.proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     self.proc.kill()
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        self.proc.wait(timeout=5)      # reaped before its folder is removed under it
                 raise InterruptedError
         self._reader.join(timeout=5)
         if self.proc.returncode != 0 or not self.result.exists():

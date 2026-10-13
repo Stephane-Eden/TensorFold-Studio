@@ -109,8 +109,8 @@ SNIPPETS = {
     "codex": lambda c: (
         f"# ~/.codex/config.toml\nmodel = {json.dumps(c.model)}\nmodel_provider = \"tensorfold\"\n\n"
         f"[model_providers.tensorfold]\nname = \"TensorFold\"\nbase_url = {json.dumps(c.base + '/v1')}\n"
-        "wire_api = \"responses\"" + ("\nenv_key = \"TENSORFOLD_API_KEY\"   # and export TENSORFOLD_API_KEY=" + c.key
-                                       if c.key != "local" else "")),
+        "wire_api = \"responses\"" + ("\nenv_key = \"TENSORFOLD_API_KEY\"   # export TENSORFOLD_API_KEY first: Connect shows "
+                                       "its value (it is not written in this file)" if c.key != "local" else "")),
     "cline": lambda c: (
         "Cline (VS Code): Settings > API Provider: OpenAI Compatible\n"
         f"Base URL         {c.base}/v1\nAPI Key          {c.key}\nModel ID         {c.model}\n"
@@ -290,10 +290,15 @@ def compose(c: Ctx) -> str:
         "services:\n  open-webui:\n    image: ghcr.io/open-webui/open-webui:main\n"
         "    container_name: tensorfold-open-webui\n"
         "    network_mode: host\n    restart: unless-stopped\n    environment:\n      PORT: \"3000\"\n"
-        f"      OPENAI_API_BASE_URL: \"{c.base}/v1\"\n      OPENAI_API_KEY: \"{c.key}\"\n"
+        f"      OPENAI_API_BASE_URL: \"{c.base}/v1\"\n"
+        # the key stays out of a file that may be shared: compose reads it from the shell that starts it
+        + ("      OPENAI_API_KEY: \"${TENSORFOLD_API_KEY:?export TENSORFOLD_API_KEY first: Connect shows it}\"\n"
+           if c.key != "local" else "      OPENAI_API_KEY: \"local\"\n") +
         "      ENABLE_OLLAMA_API: \"false\"\n      WEBUI_AUTH: \"true\"\n    volumes:\n      - data:/app/backend/data\n"
         "volumes:\n  data:\n    name: tensorfold-open-webui\n\n"
-        "# docker compose up -d, then http://localhost:3000 (the first account made is the admin).\n"
+        + ("# export TENSORFOLD_API_KEY=<the key Connect shows>, then docker compose up -d; then http://localhost:3000\n"
+           "# (the first account made is the admin).\n" if c.key != "local" else
+           "# docker compose up -d, then http://localhost:3000 (the first account made is the admin).\n") +
         "# On a Mac (Docker Desktop has no host networking): drop network_mode, add ports: [\"3000:8080\"], drop PORT,\n"
         f"# and use http://host.docker.internal:{c.base.rsplit(':', 1)[-1]}/v1 as OPENAI_API_BASE_URL.\n")
 

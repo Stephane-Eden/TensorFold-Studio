@@ -23,6 +23,9 @@ STUDIO_PARAMS = {"token"}
 ENGINE_AUTH = {"authorization", "x-api-key"}
 
 
+RELAYED = "x-tfs-relayed"                     # set on what the relay sends: seen again, it is the relay itself
+
+
 class Proxy:
     def __init__(self, engine_url_getter: Callable[[], str], api_key_getter: Callable[[], str | None] | None = None,
                  target: Callable[[], tuple[str, str | None]] | None = None) -> None:
@@ -39,6 +42,7 @@ class Proxy:
 
         headers = {k: v for k, v in incoming if k.lower() not in HOP and k.lower() not in STUDIO_HEADERS}
         key = key if snapshot else self._key()
+        headers[RELAYED] = "1"                        # a request that comes back to a relay is refused there (a loop)
         if key:
             headers = {k: v for k, v in headers.items() if k.lower() not in ENGINE_AUTH}
             headers["Authorization"] = f"Bearer {key}"        # the page never holds the engine's key itself

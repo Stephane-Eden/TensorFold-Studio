@@ -204,9 +204,15 @@ export async function download(url: string, filename: string): Promise<void> {
     try { msg = (await r.json()).detail ?? msg } catch { /* keep statusText */ }
     throw new ApiError(msg, r.status)
   }
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(await r.blob()); a.download = filename; a.click()
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+  saveBlob(await r.blob(), filename)
+}
+
+/** A file handed to the browser to save: the one way the page does it (downloads, cards, reports). */
+export function saveBlob(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = Object.assign(document.createElement('a'), { href: url, download: name })
+  document.body.appendChild(a); a.click(); a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 5000)
 }
 export function authHeaders(): Record<string, string> {
   const t = studioToken()
@@ -233,7 +239,6 @@ function askToken(): Promise<string | null> {
   asking ??= tokenDialog().then((t) => { if (t) setStudioToken(t); else declined = true; asking = null; return t })
   return asking
 }
-export function tokenDeclined(): boolean { return declined }
 export function askTokenAgain(): Promise<string | null> { declined = false; return askToken() }
 
 function tokenDialog(): Promise<string | null> {

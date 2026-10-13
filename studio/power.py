@@ -241,14 +241,17 @@ class NvidiaSmi(Source):
 
     def _query(self, reason: str | None) -> list[list[str]]:
         q = "power.draw,temperature.gpu" + (f",{reason}" if reason else "")
-        out = subprocess.run(["nvidia-smi", f"--query-gpu={q}", "--format=csv,noheader,nounits"],
-                             capture_output=True, text=True, timeout=5, check=False).stdout
-        return [[c.strip() for c in line.split(",")] for line in out.strip().splitlines() if "," in line]
+        done = subprocess.run(["nvidia-smi", f"--query-gpu={q}", "--format=csv,noheader,nounits"],
+                              capture_output=True, text=True, timeout=5, check=False)
+        # a field this driver does not know is said so; a slow or busy nvidia-smi is not that
+        self._unknown_field = "not a valid field" in (done.stdout + done.stderr).lower()
+        return [[c.strip() for c in line.split(",")] for line in done.stdout.strip().splitlines() if "," in line]
 
     def read(self) -> Reading | None:
         try:
             rows = self._query(self._fields[0])
-            while not rows and self._fields[0] is not None:     # a field this driver does not know: try the next
+            # a field this driver does not know: the next one; an empty answer for another reason keeps the fields
+            while not rows and self._fields[0] is not None and getattr(self, "_unknown_field", False):
                 self._fields.pop(0)
                 rows = self._query(self._fields[0])
         except (OSError, subprocess.SubprocessError):
@@ -353,8 +356,9 @@ def detect() -> tuple[Source | None, str]:
         r = src.read()
         if r and (r.watts is not None or r.gpu_c is not None):
             return src, "nvidia-smi"
-        return None, "nvidia-smi reports neither power nor temperature here"
-    if shutil.which("amd-smi"):
+        if not shutil.which("amd-smi"):
+            return None, "nvidia-smi reports neither power nor temperature here"
+    if shutil.which("amd-smi"):                       # also when an nvidia-smi present tells nothing (an AMD machine)
         src = AmdSmi()
         r = src.read()
         if r and (r.watts is not None or r.gpu_c is not None):

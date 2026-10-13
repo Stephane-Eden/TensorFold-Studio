@@ -223,8 +223,11 @@ def _create(name: str, base_repo: str, dest: Path) -> dict:
 
 
 def remove(name: str) -> None:
+    """Removes a copy: a folder of the living root that is one (a model's config, or the Studio's record of it), never
+    another folder that happens to sit there under a name of the same shape."""
+
     dest = folder(name)
-    if not dest.is_dir():
+    if not dest.is_dir() or not ((dest / "config.json").is_file() or _meta_path(name).is_file()):
         raise KeyError(name)
     shutil.rmtree(dest)
     shutil.rmtree(meta_dir(name), ignore_errors=True)  # its own folder only: no other copy's name can match it

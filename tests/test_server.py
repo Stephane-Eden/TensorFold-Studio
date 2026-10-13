@@ -128,7 +128,7 @@ def test_studio_token_gates_api_and_relay(tmp_path, monkeypatch):
         assert client.get("/api/engine").status_code == 401
         assert client.get("/engine/v1/models").status_code == 401
         assert client.get("/api/engine", headers={"x-studio-token": "t0k"}).status_code == 200
-        assert client.get("/api/engine?token=t0k").status_code == 200
+        assert client.get("/api/engine?token=t0k").status_code == 401      # the header only: an address ends in logs
         assert client.get("/").status_code == 200
         for p in ("/openapi.json", "/docs", "/redoc"):                      # no route map outside the token
             r = client.get(p)
@@ -206,11 +206,11 @@ def test_relay_never_forwards_the_studio_token(tmp_path, monkeypatch):
         seen = client.get("/engine/v1/models?token=t0k&x=1", headers={"x-studio-token": "t0k"}).json()
         assert seen["query"] == "x=1" and "x-studio-token" not in seen["headers"]
         # no key held: a client's own credentials pass through
-        seen = client.get("/engine/v1/models?token=t0k", headers={"authorization": "Bearer mine"}).json()
+        seen = client.get("/engine/v1/models", headers={"x-studio-token": "t0k", "authorization": "Bearer mine"}).json()
         assert seen["headers"]["authorization"] == "Bearer mine"
         # a key held: the relay's key, whatever the client sent
         s.api_key = "tf-real"
-        seen = client.get("/engine/v1/models?token=t0k", headers={"authorization": "Bearer local"}).json()
+        seen = client.get("/engine/v1/models", headers={"x-studio-token": "t0k", "authorization": "Bearer local"}).json()
         assert seen["headers"]["authorization"] == "Bearer tf-real" and "x-api-key" not in seen["headers"]
     finally:
         server.shutdown()

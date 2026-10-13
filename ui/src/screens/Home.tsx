@@ -20,12 +20,13 @@ const ICON = {
 /** Home: what the AI is doing, in words, the one action for that state, and the three things a person came for. */
 export default function Home({ machine, engine, settings, saveSettings, refreshEngine, refreshSettings, toast, stale }: Ctx) {
   const [models, setModels] = useState<Model[] | null>(null)
+  const [catalogErr, setCatalogErr] = useState<string | null>(null)   // said, rather than "Reading…" for ever
   const [convs, setConvs] = useState<ConversationRow[]>([])
   const [living, setLiving] = useState<LivingView | null>(null)
   const [busy, setBusy] = useState(false)
   const [fleet, setFleet] = useState<FleetMachine[]>([])
   useEffect(() => {
-    api.catalog().then((c) => setModels(c.models)).catch(() => {})
+    api.catalog().then((c) => { setModels(c.models); setCatalogErr(null) }).catch((e) => setCatalogErr(String((e as Error).message ?? e)))
     api.conversations().then((r) => setConvs(r.conversations.slice(0, 5))).catch(() => {})
     api.living().then(setLiving).catch(() => {})
   }, [engine?.status, engine?.model])
@@ -84,6 +85,9 @@ export default function Home({ machine, engine, settings, saveSettings, refreshE
   } else if (models) {
     line = <>No AI is installed yet.</>
     action = <a className="btn primary" href="#models">Choose one</a>
+  } else if (catalogErr) {
+    line = <>The list of AIs could not be read ({catalogErr}).</>
+    action = <button className="btn" onClick={() => api.catalog().then((c) => { setModels(c.models); setCatalogErr(null) }).catch((e) => setCatalogErr(String((e as Error).message ?? e)))}>Try again</button>
   } else {
     line = <>Reading this machine…</>
   }

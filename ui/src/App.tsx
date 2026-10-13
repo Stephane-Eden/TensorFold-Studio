@@ -122,20 +122,21 @@ export default function App() {
     return () => removeEventListener('keydown', on)
   }, [])
 
+  // the look, applied and remembered for the next load (index.html reads it before the first paint)
+  const rememberTheme = useCallback((t: Settings['theme']) => {
+    setTheme(t)
+    try { localStorage.setItem('tfs-theme', t) } catch { /* no storage */ }
+  }, [])
   const saveSettings = async (patch: Partial<Settings>) => {
     const s = await api.saveSettings(patch)
     setSettings(s)
-    if (patch.theme) {
-      setTheme(s.theme)
-      try { localStorage.setItem('tfs-theme', s.theme) } catch { /* no storage */ }   // the next load starts in it
-    }
+    if (patch.theme) rememberTheme(s.theme)
     return s
   }
   const onTheme = useCallback((t: Settings['theme']) => {
-    setTheme(t)
-    try { localStorage.setItem('tfs-theme', t) } catch { /* no storage */ }
+    rememberTheme(t)                                   // at once; the save follows
     api.saveSettings({ theme: t }).then(setSettings).catch((e) => toast(`The look applies here but was not saved: ${e}`, 'bad'))
-  }, [toast])
+  }, [toast, rememberTheme])
   const openPalette = useCallback(() => setPalette(true), [])
   // stale once the Studio has been silent for 10 s and three polls: one missed poll is not worth greying the page
   useEffect(() => { if (!studioDown) return; const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t) }, [studioDown])

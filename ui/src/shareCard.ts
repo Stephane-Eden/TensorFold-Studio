@@ -1,5 +1,5 @@
 // The result card to share as an image: drawn from the run alone, 1200 × 675 at twice the pixels, on a canvas.
-import type { BenchRun } from './api'
+import { saveBlob, type BenchRun } from './api'
 import { secs } from './units'
 
 const W = 1200, H = 675, SCALE = 2
@@ -109,12 +109,6 @@ export function cardBlob(run: BenchRun, names: Record<string, string> = {}): Pro
   return drawCard(run, names).then((c) => new Promise<Blob>((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error('the card could not be drawn'))), 'image/png')))
 }
 
-export function download(blob: Blob, name: string) {
-  const url = URL.createObjectURL(blob)
-  const a = Object.assign(document.createElement('a'), { href: url, download: name })
-  document.body.appendChild(a); a.click(); a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 5000)
-}
 
 /** Copies text, with the old way when the page is not a secure context (plain http on the LAN). */
 export async function copyText(text: string): Promise<void> {
@@ -136,6 +130,6 @@ export async function shareImage(run: BenchRun, names: Record<string, string> = 
       return 'copied'
     } catch { /* refused: fall through to a download */ }
   }
-  download(await cardBlob(run, names), name)
+  saveBlob(await cardBlob(run, names), name)
   return 'downloaded'
 }

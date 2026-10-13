@@ -334,7 +334,9 @@ class Engine:
         self.last_health: Health | None = None
         self.command: list[str] | None = None
         self.startup: dict[str, float] = {}      # numbers read from the engine's startup lines
-        self._counters: dict[str, float] | None = None   # the CUDA server's totals at the previous poll
+        # the CUDA server's totals at each reader's previous poll: the page and the history poll at their own pace, and
+        # a rate covers the time since the same reader last asked
+        self._counters: dict[str, dict[str, float]] = {}
         self.kind: str | None = None             # "native" or "python": the engine an owned process runs
         self._stopping = False                   # a stop was asked: its exit code is not a failure
         self._rates_lock = threading.Lock()      # the counters' baseline, moved by one caller at a time
@@ -423,11 +425,13 @@ class Engine:
         ``serve``: what the engine is given to serve when it is not ``model`` itself (a living copy's folder);
         ``slide``: the fact graph file of a copy that learns."""
 
+        # the address probed before the lock (up to a few seconds over HTTP): the log reader needs the lock meanwhile
+        answers = not self.owned and self.health().ok
         with self._lock:
             self._stopping = False
             if self.owned:
                 raise RuntimeError(f"an engine is already running ({self.model}); stop it first")
-            if self.health().ok:
+            if answers:
                 raise RuntimeError(f"a server already answers at {self.settings.engine_url}; stop it or change the address")
             launch = engines.choose(native_model).launch(serve or model, self.settings, drafter, slide)
             cmd, env, notes = launch.cmd, launch.env, launch.notes
@@ -435,7 +439,7 @@ class Engine:
             self.kind = launch.kind
             self.log.clear()
             self.startup = {}
-            self._counters = None
+            self._counters = {}
             self._window_asked = None
             self.exit_code = None
             self._emit(f"[studio] $ {' '.join(cmd)}")
@@ -502,7 +506,7 @@ class Engine:
 
         self.startup = {} if not self.owned else self.startup
         self.last_health = None
-        self._counters = None
+        self._counters = {}
         self._window_asked = None
 
     def _pump(self, child: _Child, log: Path, replay: bool) -> None:
@@ -548,7 +552,9 @@ class Engine:
                         say(_redrawn(line))
                 break
             with contextlib.suppress(OSError):
-                if os.path.getsize(log) > LOG_MAX_BYTES:   # the engine appends; the file starts over under it
+                # the engine appends (O_APPEND on POSIX), so the file can start over under it; on Windows an inherited
+                # handle keeps its offset, which no engine there needs today: to revisit with a Windows engine
+                if os.path.getsize(log) > LOG_MAX_BYTES:
                     os.truncate(log, 0)
                     f.seek(0)
             time.sleep(0.2)
@@ -605,7 +611,7 @@ class Engine:
             self._subscribers.remove(q)
 
     # -- health ------------------------------------------------------------------------
-    def health(self, _depth: int = 0) -> Health:
+    def health(self, _depth: int = 0, reader: str = "page") -> Health:
         # the target read once, address and key together: a change while this poll runs must not send the new key to
         # the old engine, nor let the old engine's answer stand for the new one
         gen, base, key = self.target()
@@ -661,15 +667,15 @@ class Engine:
             if current:
                 if h.ok and h.counters:
                     with self._rates_lock:           # the baseline is read and moved by one caller at a time
-                        h.decode_tps, h.prefill_tps = rates_from_counters(self._counters, h.counters)
-                        self._counters = h.counters
+                        h.decode_tps, h.prefill_tps = rates_from_counters(self._counters.get(reader), h.counters)
+                        self._counters[reader] = h.counters
                     drafted, accepted = h.counters.get("drafted_total"), h.counters.get("accepted_total")
                     if drafted:
                         h.draft_acceptance = min(1.0, max(0.0, (accepted or 0.0) / drafted))
                 h.generation = gen
                 self.last_health = h
         if not current:                               # the target changed meanwhile: this answer is the old engine's
-            return self.health(_depth + 1) if _depth < 3 else Health(ok=False, status="unreachable",
+            return self.health(_depth + 1, reader) if _depth < 3 else Health(ok=False, status="unreachable",
                                                            error="the engine's address keeps changing")
         return h
 
@@ -687,10 +693,10 @@ class Engine:
         h.prompt_cache = prompt_cache_of(m)
         h.totals = totals_of(m)
 
-    def status(self) -> Health:
+    def status(self, reader: str = "page") -> Health:
         """What the Studio tells the UI: the process state first, then what /health says."""
 
-        h = self.health()
+        h = self.health(reader=reader)
         if self.settings.remote:
             return h
         if self.owned and not h.ok:
@@ -704,8 +710,8 @@ class Engine:
             h.model = self.model
         return h
 
-    def info(self, _depth: int = 0) -> dict:
-        st = self.status()
+    def info(self, _depth: int = 0, reader: str = "page") -> dict:
+        st = self.status(reader)
         tf_available = native.find_binary() is not None or tensorfold_command() is not None   # file checks, no lock
         # the reading and the settings described together, under the target lock: an engine replaced at any moment
         # after the reading is never described with the old engine's model or window
@@ -724,7 +730,7 @@ class Engine:
                     "api_key_set": bool(self.settings.api_key), "key_pending_restart": self.key_pending_restart()})
         if stale:
             if _depth < 3:
-                return self.info(_depth + 1)
+                return self.info(_depth + 1, reader)
             h = Health(ok=False, status="unreachable", error="the engine's address keeps changing").to_dict()
             h.update({"managed": not self.settings.remote, "owned": self.owned, "engine_url": self.settings.engine_url})
         if not self.settings.remote:

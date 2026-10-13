@@ -130,6 +130,9 @@ def _engine_url(value: object) -> str:
         parts.port  # noqa: B018  (raises on a port that is not a number)
     except ValueError as exc:
         raise ValueError("engine_url has a port that is not a number") from exc
+    if parts.path.rstrip("/").endswith("/engine") or "/engine/" in parts.path:
+        raise ValueError("engine_url is a Studio's relay (/engine): give the engine's own address, such as "
+                         "http://127.0.0.1:8080")
     return value.rstrip("/")
 
 

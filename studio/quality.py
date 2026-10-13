@@ -28,8 +28,9 @@ _STATED = re.compile(rf"(?:\b(?i:answer)\b(?:{_IS})?\s*:?"                    # 
 GSM_TOKENS, MMLU_TOKENS, IF_TOKENS, LONG_TOKENS = 512, 32, 400, 48
 _NUMBER = re.compile(r"-?\d[\d,]*(?:\.\d+)?(?:\s*/\s*\d[\d,]*(?:\.\d+)?)?")   # 1/18 is one number, a fraction
 # how replies are read: part of the suite's digest, so runs scored by different rules are not compared
-SCORING = ("2026-10-11b: fractions read as their value; a letter contradicted later fails, by \"answer\", \"choice\" or "
-           "\"option\" in any case")
+SCORING = ("2026-10-13: fractions read as their value; a letter contradicted later fails, by \"answer\", \"choice\" or "
+           "\"option\" in any case; a stated letter is not a hedge; GSM8K reads the line after Answer:, a typographic "
+           "minus as a minus")
 
 
 # the wording `items` wraps around each question; changed, it is bumped here so earlier runs are not compared
@@ -121,11 +122,13 @@ def items(data: dict, filler: str, only: list[str] | None = None) -> list[dict]:
 def score(category: str, item: dict, reply: str) -> tuple[bool, str]:
     """Whether the reply passes, and what was read from it."""
 
-    text = answer_text(reply)
+    text = answer_text(reply).replace("\u2212", "-")      # a typographic minus is a minus
     if not text:
         return False, "no answer"
     if category == "gsm8k":
-        tail = text.rsplit("Answer:", 1)[1] if "Answer:" in text else text.splitlines()[-1]
+        # the line that follows the last "Answer:", not the rest of the reply (a closing sentence may hold a number)
+        tail = ((text.rsplit("Answer:", 1)[1].strip().splitlines() or [""])[0] if "Answer:" in text
+                else text.splitlines()[-1])
         found = [_num(x) for x in _NUMBER.findall(tail)]
         found = [x for x in found if x is not None]
         if not found:
@@ -135,10 +138,14 @@ def score(category: str, item: dict, reply: str) -> tuple[bool, str]:
         got = found[-1]
         return got == _num(item["answer"]), f"{got:g}"
     if category == "mmlu":
-        if re.search(r"\b[ABCD]\b\s*(?:or|/|and)\s*\(?[ABCD]\b", text):
+        # a letter alone, or a letter then a mark: "A good case can be made, but B." starts with the article, not an
+        # answer; "C is correct" states one
+        m = (re.match(r"^\(?([ABCD])\)?(?:[.):,]|\s*$)", text)
+             or re.match(r"^\(?([ABCD])\)?\s+is\s+(?:the\s+)?(?:correct|right|answer)\b", text, re.IGNORECASE)
+             or re.search(_STATED, text))
+        # two letters offered as alternatives fail, unless one was stated as the answer ("C, because A and B are wrong")
+        if not m and re.search(r"\b[ABCD]\b\s*(?:or|/|and)\s*\(?[ABCD]\b", text):
             return False, "hedged between letters"
-        # a letter alone, or a letter then a mark: "A good case can be made, but B." starts with the article, not an answer
-        m = re.match(r"^\(?([ABCD])\)?(?:[.):,]|\s*$)", text) or re.search(_STATED, text)
         if m:
             got = m.group(1)
             # "B. Actually the answer is C.": a letter stated later as the answer, or after "actually", overrides

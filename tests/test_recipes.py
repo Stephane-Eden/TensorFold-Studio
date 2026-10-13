@@ -26,7 +26,8 @@ def test_every_recipe_writes_its_settings_with_the_address_key_and_model():
             assert not r.checks and "private network" in text
             continue
         assert "Nemotron" in text or r.id == "open-webui", r.id
-        assert "tf-abc" in text, r.id
+        # the key in every recipe a person pastes into a tool, never in a config file kept on disk (codex)
+        assert ("tf-abc" in text) != (r.id == "codex"), r.id
         assert set(r.checks) <= set(recipes.CHECK_LABELS) and r.kind in recipes.KINDS
     assert "host.docker.internal:8080/v1" in recipes.SNIPPETS["librechat"](c)
     local = recipes.Ctx(base="http://127.0.0.1:8080", key="local", model="m")

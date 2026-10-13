@@ -76,13 +76,29 @@ class Brands:
     def __init__(self, path: Path):
         self.path = path
         self._lock = threading.Lock()
+        self._cached: tuple[tuple[int, int], list[dict]] | None = None   # read once per version of the file
+
+    def version(self) -> str:
+        """The file's version (its size and time), for the page's cache: unchanged, the logos are not sent again."""
+
+        try:
+            st = self.path.stat()
+        except OSError:
+            return "none"
+        return f"{st.st_mtime_ns:x}-{st.st_size:x}"
 
     def _read(self) -> list[dict]:
         try:
+            st = self.path.stat()
+            key = (st.st_mtime_ns, st.st_size)
+            if self._cached and self._cached[0] == key:
+                return [dict(b) for b in self._cached[1]]
             data = json.loads(self.path.read_text())
         except (OSError, ValueError):
             return []
-        return [b for b in data.get("brands", []) if isinstance(b, dict) and ID.match(str(b.get("id", "")))]
+        out = [b for b in data.get("brands", []) if isinstance(b, dict) and ID.match(str(b.get("id", "")))]
+        self._cached = (key, out)
+        return [dict(b) for b in out]
 
     def _write(self, brands: list[dict]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

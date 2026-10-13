@@ -60,7 +60,7 @@ from .catalog import Catalog, capacity_of
 from .engine import Engine
 from .gate import Busy, Gate
 from .machine import detect
-from .proxy import Proxy
+from .proxy import RELAYED, Proxy
 from .pull import Downloads, NoRoom
 
 UI_DIST = (Path(__file__).parent / "ui_dist").resolve()
@@ -146,6 +146,7 @@ def relay_refuses(raw: str, path: str) -> str | None:
 
 
 # TensorFold's 3D view of what a copy learned, served through the Studio, and the cookie that opens it
+REDEEM_BYTES = 1024                         # the body of the one route open without the token
 VIEW, VIEW_COOKIE = "/living-view", "tfs_living_view"
 LOGS_STREAM, LOGS_COOKIE = "/api/engine/logs/stream", "tfs_logs"      # an EventSource sends no header: a cookie
 
@@ -244,7 +245,8 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
                     same_secret(request.cookies.get(VIEW_COOKIE, ""), view_cookie())):
                 return HTMLResponse("<p>This view needs the Studio's token: open it from Teach.</p>", status_code=401)
         if token and p.startswith(("/api/", "/engine/")) and p != "/api/access/redeem":   # a one-time code is its own key
-            given = request.headers.get(TOKEN_HEADER) or request.query_params.get("token") or ""
+            # the header only: a token in an address ends up in logs and histories (the page never sends it there)
+            given = request.headers.get(TOKEN_HEADER) or ""
             by_cookie = p == LOGS_STREAM and same_secret(request.cookies.get(LOGS_COOKIE, ""), logs_cookie())
             if not same_secret(given, token) and not by_cookie and \
                     not (p.startswith("/engine/") and _engine_key_given(request)):
@@ -255,7 +257,8 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
 
     # figures kept by the server, so Monitor's charts draw as soon as a page opens
     used = usage.Usage(settings_mod.config_dir() / "usage.sqlite")
-    kept = history.History(settings_mod.config_dir() / "history.sqlite", eng.info, then=used.record)
+    kept = history.History(settings_mod.config_dir() / "history.sqlite", lambda: eng.info(reader="history"),
+                           then=used.record)
     app.state.history = kept
 
     @app.on_event("startup")
@@ -462,10 +465,20 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         return links.make()
 
     @app.post("/api/access/redeem")
-    def access_redeem(body: dict[str, Any]):
-        """A one-time code traded for the token, once: the page keeps the token as if it had been typed."""
+    async def access_redeem(request: Request):
+        """A one-time code traded for the token, once: the page keeps the token as if it had been typed. The one route
+        open without the token reads at most a kilobyte: a larger body is refused before it is held in memory."""
 
-        code = body.get("code")
+        raw = b""
+        async for part in request.stream():
+            raw += part
+            if len(raw) > REDEEM_BYTES:
+                raise HTTPException(413, "a one-time code is a few dozen characters")
+        try:
+            body = json.loads(raw or b"{}")
+        except ValueError as exc:
+            raise HTTPException(400, "expected a JSON object with the code") from exc
+        code = body.get("code") if isinstance(body, dict) else None
         if not token or not isinstance(code, str) or not links.spend(code):
             raise HTTPException(403, "this link was used already, has expired, or is not this Studio's")
         return {"token": token}
@@ -1126,8 +1139,12 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
     makers = brands.Brands(settings_mod.config_dir() / "brands.json")
 
     @app.get("/api/brands")
-    def brand_list():
-        return {"brands": makers.all()}
+    def brand_list(request: Request):
+        # up to a hundred logos inline: sent again only when the file changed (the browser revalidates each time)
+        tag = f'"{makers.version()}"'
+        if request.headers.get("if-none-match") == tag:
+            return Response(status_code=304, headers={"ETag": tag, "Cache-Control": "no-cache"})
+        return JSONResponse({"brands": makers.all()}, headers={"ETag": tag, "Cache-Control": "no-cache"})
 
     @app.put("/api/brands/{brand_id}")
     def brand_save(brand_id: str, body: dict[str, Any]):
@@ -1374,6 +1391,10 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
             return f"it drafts for {entry.name}, being served: stop it first"
         if (job := dl.jobs.get(repo)) is not None and job.state == "running":
             return "it is downloading"
+        if creating.get("state") == "copying" and creating.get("base") == repo:
+            return f"the copy {creating.get('name')} is being made from it"
+        if chore.get("state") == "running":           # a fetch from a peer, a restore: they may read its files
+            return f"a {chore.get('kind', 'task')} of {chore.get('copy', 'a copy')} is going"
         return None
 
     @app.get("/api/storage")
@@ -1421,6 +1442,9 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         # teaching changes the model for everyone, and its facts may be private: every route of TensorFold's learner
         # goes through the Studio's own API (its token), never through the relay with the engine key. The path is
         # judged as the engine will read it: decoded, without what an encoded "?" or "#" would cut off
+        if request.headers.get(RELAYED):            # the engine's address is this relay itself: answering would loop
+            return JSONResponse({"detail": "the engine's address in Settings points back at this Studio's relay "
+                                           "(/engine): give the engine's own address"}, status_code=508)
         refused = relay_refuses(request.url.path.removeprefix("/engine"), path)
         if refused:
             return JSONResponse({"detail": refused}, status_code=403 if "teach" in refused else 400)

@@ -38,6 +38,7 @@ class Entry:
     workspace_bytes: int | None = None
     drafter_fraction: float = 1.0        # share of the drafter's files that stays resident (bf16 files loaded at 4 bits: 0.3)
     drafter_bytes: int | None = None
+    drafter_size_bytes: int | None = None  # the drafter's files as last measured: its weight before sizes are fetched
     native: bool = False                 # served by the native engine: what its `capabilities` say on this machine,
                                          # this flag only when no engine is installed to ask
     format: str | None = None            # the checkpoint's weight format as the engine names it ("mlx-q4g64")
@@ -189,7 +190,8 @@ class Catalog:
         """Bytes the estimate counts as resident: the checkpoint plus the drafter's resident share."""
 
         size = self.size_of(e.id) or e.size_bytes or 0
-        drafter = int((self.size_of(e.drafter) or 0) * e.drafter_fraction) if e.drafter else 0
+        # the drafter's measured size when the hub's is not known yet (a first start offline): not counted as nothing
+        drafter = int((self.size_of(e.drafter) or e.drafter_size_bytes or 0) * e.drafter_fraction) if e.drafter else 0
         return size + drafter
 
     def verdict_of(self, e: Entry, machine: Machine, weights: int, workspace: int, fraction: float | None,

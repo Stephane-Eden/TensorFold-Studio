@@ -142,6 +142,10 @@ def verdict(cap: Capacity, weights_bytes: int, *, bytes_per_token: int, max_cont
     chosen = requested_fraction or default
     head_default, tokens_default = at(default)
     if head_default >= 0 and tokens_default >= COMFORT_TOKENS:
+        if chosen != default and MIN_TOKENS <= at(chosen)[1] < COMFORT_TOKENS:
+            # the budget set in Settings is the one a start uses: there it is tight, whatever the default would give
+            return pack("tight", "Fits, tight", chosen, "At the memory budget set in Settings it runs with a short "
+                        "context; the default budget gives it room.")
         f = chosen if at(chosen)[1] >= MIN_TOKENS else default
         return pack("fits", "Fits", f, "Fits at the default memory budget, with room for context and for your apps.")
     head_raised, tokens_raised = at(raised)

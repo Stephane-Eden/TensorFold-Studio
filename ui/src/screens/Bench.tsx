@@ -557,8 +557,8 @@ function ToolEvalInstall({ toast, onDone }: { toast: Ctx['toast']; onDone: () =>
     <div className="notice info"><div>
       Tool calls are measured by <a href="https://github.com/SeraphimSerapis/tool-eval-bench" target="_blank" rel="noreferrer">tool-eval-bench</a>, a free tool (MIT) that plays scripted conversations with mock tools and scores each one. It is not installed on this machine yet.
       <div className="actions" style={{ marginTop: 8 }}>
-        <button className="btn sm primary" aria-busy={busy} disabled={busy} onClick={install}>{busy ? 'Installing… (up to a minute)' : 'Install it'}</button>
-        <span className="small muted">or in a terminal: <code>uv tool install tool-eval-bench</code></span>
+        <button className="btn sm primary" aria-busy={busy} disabled={busy} onClick={install}>{busy ? 'Installing… (up to five minutes)' : 'Install it'}</button>
+        <span className="small muted">or in a terminal: <code>uv tool install tool-eval-bench==2.8.0</code> (the version the Studio reads)</span>
       </div>
       {err && <p className="small bad" style={{ marginBottom: 0 }}>{err}</p>}
     </div></div>

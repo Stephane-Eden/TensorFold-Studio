@@ -706,6 +706,7 @@ class Bench:
             version = {"quality": qdata["version"], "digest": qdata["digest"]}
         if mode == "tools":
             tv = tooleval.version(tools_exe or "")
+            self._tools_exe = tools_exe          # kept here, not in the run: its path holds the user's name
             # two tool runs compare only on the same tool version and scenario set
             version = {"tool_eval_bench": tv, "digest": f"teb-{tv}-{'standard' if full else 'short'}-s{tooleval.SEED}"}
         sizes = [n for n in SIZES if n <= (max_context or SIZES[-1])]
@@ -735,7 +736,7 @@ class Bench:
                             "stopping": False},
                "max_context": max_context if mode == "prefill" else None,
                "max_concurrency": levels[-1] if mode == "load" else None,
-               **({"tools_full": full, "tools_exe": tools_exe} if mode == "tools" else {}),
+               **({"tools_full": full} if mode == "tools" else {}),
                **({"kl_reference": ({"kind": "address", "url": self._kl_reference[0], "model": self._kl_reference[2]}
                                     if self._kl_reference else {"kind": "drafts-off"}), "kl_load": kl_load}
                   if mode == "kl" else {}),
@@ -940,7 +941,7 @@ class Bench:
                 # ones say nothing of the last (on the M6 the estimate said 7 minutes for a 10-minute run)
                 run["progress"]["done"] = (e.get("index") or 0) + 1
 
-        t = tooleval.Run(run.pop("tools_exe"), base, key, run["model"], full=run.get("tools_full", False),
+        t = tooleval.Run(self._tools_exe, base, key, run["model"], full=run.get("tools_full", False),
                          on_event=on_event)
         try:
             doc = t.wait(self._cancel)

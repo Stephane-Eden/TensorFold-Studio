@@ -26,7 +26,7 @@ def fake_launch(monkeypatch):
             return engines.Launch(kind="native", cmd=[sys.executable, "-c", SCRIPT], env={}, notes=[])
 
     monkeypatch.setattr(engines, "choose", lambda native_model: L())
-    monkeypatch.setattr(Engine, "health", lambda self: engine_mod.Health(ok=False, status="unreachable"))
+    monkeypatch.setattr(Engine, "health", lambda self, *a, **k: engine_mod.Health(ok=False, status="unreachable"))
 
 
 def _until(cond, timeout=10.0):

@@ -189,7 +189,12 @@ def runs(name: str) -> list[dict]:
     return sorted(({k: v for k, v in x.items() if k != "rows"} for x in docs), key=lambda x: x["at"])
 
 
+ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{4,12}")     # a check's id as run() makes it (also `against`)
+
+
 def get(name: str, rid: str) -> dict:
+    if not ID.fullmatch(rid):
+        raise KeyError(rid)
     p = _runs_dir(name) / f"{rid}.json"
     if not p.is_file():
         raise KeyError(rid)

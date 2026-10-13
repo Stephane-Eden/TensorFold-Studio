@@ -153,7 +153,12 @@ def public(m: dict) -> dict:
         "changed": sum(1 for v in m["files"].values() if v != "base")}
 
 
+ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{4,12}")     # a version's id as save() makes it; anything else names no file
+
+
 def _manifest(name: str, vid: str) -> dict:
+    if not ID.fullmatch(vid):
+        raise KeyError(vid)
     p = _dir(name) / "manifests" / f"{vid}.json"
     if not p.is_file():
         raise KeyError(vid)
@@ -310,6 +315,8 @@ def _private(path: Path, text: str) -> None:
 
 
 def remove(name: str, vid: str) -> dict:
+    if not ID.fullmatch(vid):
+        raise KeyError(vid)
     p = _dir(name) / "manifests" / f"{vid}.json"
     if not p.is_file():
         raise KeyError(vid)

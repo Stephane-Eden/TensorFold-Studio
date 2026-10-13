@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, authHeaders, shortName, type GraphFact, type LessonRecord, type LivingView, type PreviewFact } from '../api'
+import { api, authHeaders, download, shortName, type GraphFact, type LessonRecord, type LivingView, type PreviewFact } from '../api'
 import type { Ctx } from '../ctx'
 import { bytes, secs } from '../units'
 import { Checks, Measures, Versions } from './TeachKeep'
@@ -105,13 +105,8 @@ export default function Teach({ engine, toast, refreshEngine, stale }: Ctx) {
     } catch (e) { w?.close(); toast(`The view did not open: ${(e as Error).message}`, 'bad') }
   }
   const downloadCard = (n: string) => run(`card:${n}`, async () => {
-    try {
-      const r = await fetch(`/api/living/copies/${encodeURIComponent(n)}/card`, { headers: authHeaders() })
-      if (!r.ok) throw new Error(`the Studio answered ${r.status}`)
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(await r.blob()); a.download = `${n}-model-card.md`; a.click()
-      setTimeout(() => URL.revokeObjectURL(a.href), 1000)
-    } catch (e) { toast(`Not downloaded: ${(e as Error).message}`, 'bad') }
+    try { await download(`/api/living/copies/${encodeURIComponent(n)}/card`, `${n}-model-card.md`) }
+    catch (e) { toast(`Not downloaded: ${(e as Error).message}`, 'bad') }
   })
   const keptByStudio = new Set((learned?.lessons ?? []).filter((x) => x.outcome === 'kept').map((x) => x.fact))
   const jobSince = useElapsed(job?.started, job?.status === 'running')
