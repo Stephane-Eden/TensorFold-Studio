@@ -174,6 +174,12 @@ class Replays:
                                                  "replay_status": self.current["status"]}}, rev=rev)
 
 
+def _measured(stats: dict) -> dict:
+    """A reply's figures, its token count and speed dropped when they were stream events counted by the page."""
+
+    return {**stats, "tokens": None, "tps": None} if stats.get("measured") == "counted" else stats
+
+
 def uses_tools(doc: dict) -> bool:
     """Whether a conversation leaned on the workshop (tools, a reply format, tool turns): a replay cannot rebuild it."""
 
@@ -221,7 +227,8 @@ def compare_replies(a: dict, b: dict) -> dict:
         mb = rb.get(q)
         if mb is None:
             continue
-        sa, sb = ma.get("stats") or {}, mb.get("stats") or {}
+        # a reply kept before tokens were told from stream events ("counted") has no token figure to compare
+        sa, sb = (_measured(m.get("stats") or {}) for m in (ma, mb))
         ta, tb = sa.get("tps"), sb.get("tps")
         text, rank = q
         rows.append({"question": (text if rank == 0 else f"{text} ({rank + 1})")[:200], "a": {"text": ma.get("content", ""), "tps": ta, "ttft": sa.get("ttft"),

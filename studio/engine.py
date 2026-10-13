@@ -706,20 +706,27 @@ class Engine:
 
     def info(self, _depth: int = 0) -> dict:
         st = self.status()
-        with self.target_lock:                        # a reading of the engine replaced meanwhile is not described
+        tf_available = native.find_binary() is not None or tensorfold_command() is not None   # file checks, no lock
+        # the reading and the settings described together, under the target lock: an engine replaced at any moment
+        # after the reading is never described with the old engine's model or window
+        with self.target_lock:
             stale = getattr(st, "generation", self.generation) != self.generation
-            if not stale and st.context_length:       # the CUDA server says it on every poll; keep the latest
-                self.startup["context_tokens"] = float(st.context_length)
-        if stale and _depth < 3:
-            return self.info(_depth + 1)
-        h = st.to_dict()
-        h.update({"managed": not self.settings.remote, "owned": self.owned, "engine_url": self.settings.engine_url,
-                  "model_repo": self.model if self.owned else None,
-                  "started_at": self.started_at, "uptime_s": (time.time() - self.started_at) if self.started_at and
-                  self.owned else None, "command": self.command,
-                  "tensorfold_available": native.find_binary() is not None or tensorfold_command() is not None,
-                  "engine_kind": self.kind if self.owned else None, "startup": dict(self.startup),
-                  "api_key_set": bool(self.settings.api_key), "key_pending_restart": self.key_pending_restart()})
+            if not stale:
+                if st.context_length:                 # the CUDA server says it on every poll; keep the latest
+                    self.startup["context_tokens"] = float(st.context_length)
+                h = st.to_dict()
+                h.update({
+                    "managed": not self.settings.remote, "owned": self.owned, "engine_url": self.settings.engine_url,
+                    "model_repo": self.model if self.owned else None, "started_at": self.started_at,
+                    "uptime_s": (time.time() - self.started_at) if self.started_at and self.owned else None,
+                    "command": self.command, "tensorfold_available": tf_available,
+                    "engine_kind": self.kind if self.owned else None, "startup": dict(self.startup),
+                    "api_key_set": bool(self.settings.api_key), "key_pending_restart": self.key_pending_restart()})
+        if stale:
+            if _depth < 3:
+                return self.info(_depth + 1)
+            h = Health(ok=False, status="unreachable", error="the engine's address keeps changing").to_dict()
+            h.update({"managed": not self.settings.remote, "owned": self.owned, "engine_url": self.settings.engine_url})
         if not self.settings.remote:
             h["machine_memory"] = self.machine_memory(h.get("memory"))
         return h

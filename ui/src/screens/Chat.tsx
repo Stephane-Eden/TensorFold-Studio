@@ -91,12 +91,17 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
   const [more, setMore] = useState(false)                 // older conversations beyond the first page
   // each list asked (a search, a refresh) is a new generation: a page that comes back after it belongs to the old list
   const listGen = useRef(0)
+  const shownGen = useRef(0)                              // the generation of the list on screen
   const refreshList = useCallback((query = q) => {
     const gen = ++listGen.current
-    return api.conversations(query).then((r) => { if (gen !== listGen.current) return; setConvs(r.conversations); setMore(!!r.more) }).catch(() => {})
+    return api.conversations(query).then((r) => {
+      if (gen !== listGen.current) return
+      shownGen.current = gen; setConvs(r.conversations); setMore(!!r.more)
+    }).catch(() => {})
   }, [q])
   const loadMore = () => {
     const gen = listGen.current
+    if (shownGen.current !== gen) return Promise.resolve()   // a newer list is on its way: its offsets are not these
     return api.conversations(q, convs.filter((c) => !c.pinned).length).then((r) => {   // the offset counts the unpinned
       if (gen !== listGen.current) return
       setConvs((old) => [...old, ...r.conversations.filter((c) => !old.some((o) => o.id === c.id))]); setMore(!!r.more)

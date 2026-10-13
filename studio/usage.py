@@ -57,6 +57,9 @@ class Usage:
                 # kept before servers were told apart (no address) is not trusted for any of them
                 url = info.get("engine_url")
                 prev = self._get(db, f"totals@{url}") if url else self._get(db, "totals")
+                if prev is None and url:              # kept before one per server: this server's when its address says so
+                    legacy = self._get(db, "totals")
+                    prev = legacy if legacy and legacy.get("url") == url else None
                 # the engine's start time when the Studio knows it: the same model restarted between two readings
                 # can pass its old totals, and only this tells the two engines apart
                 started = info.get("started_at")

@@ -186,7 +186,9 @@ def findings(run: dict) -> list[str]:
     if run.get("mode") == "load" and load:
         # "alone" is the level of one request; a comparison only between levels that were measured
         one = next((x for x in load if x["concurrency"] == 1), load[0])
-        best = max(load, key=lambda x: x.get("total_tps") or 0)
+        measured = [x for x in load if x.get("total_tps")]
+        unmeasured = [x["concurrency"] for x in load if not x.get("total_tps")]
+        best = max(measured or load, key=lambda x: x.get("total_tps") or 0)
         if best["concurrency"] > 1 and one.get("total_tps") and best.get("total_tps"):
             out.append(f"Serving several at once raises the total from {_tps(one['total_tps'])} tokens per second (one "
                        f"request) to {_tps(best['total_tps'])} at {best['concurrency']} at once, "
@@ -200,10 +202,19 @@ def findings(run: dict) -> list[str]:
         elif not one.get("total_tps"):
             out.append("The speed of one request alone was not measured (no token counts), so nothing is said of what "
                        "serving several at once adds.")
+        elif unmeasured:
+            out.append(f"{_tps(one.get('total_tps'))} tokens per second alone; the levels of "
+                       f"{', '.join(str(c) for c in unmeasured)} at once were not measured (no token counts), so "
+                       "nothing is said of what serving several at once gives.")
         else:
             out.append(f"Serving several at once does not raise the total: {_tps(one.get('total_tps'))} tokens per "
                        "second alone is the most this engine gives here.")
-        flat = next((x for x, y in itertools.pairwise(load) if (y.get("total_tps") or 0) < 1.1 * (x.get("total_tps") or 0)), None)
+        if unmeasured and best["concurrency"] > 1:
+            out.append(f"Not measured at {', '.join(str(c) for c in unmeasured)} at once (no token counts): the best "
+                       "total above is among the levels measured only.")
+        # a plateau only between two levels both measured
+        flat = next((x for x, y in itertools.pairwise(load) if x.get("total_tps") and y.get("total_tps")
+                     and y["total_tps"] < 1.1 * x["total_tps"]), None)
         if flat and best["concurrency"] > 1:
             out.append(f"Past {flat['concurrency']} at once the total gains less than 10% per doubling: more requests "
                        "mostly wait longer.")
