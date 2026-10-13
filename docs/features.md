@@ -83,7 +83,8 @@ comparison names its two sides the same way.
 - A thinking block that opens while the model thinks and folds when it answers; smooth streaming text; presets in
   three panels (`ChatPresets.tsx`): Instructions (the system prompt), Length of the reply (reply up to N tokens, up to
   four stops) and Randomness (temperature, then top_p, top_k, min_p and seed folded as finer control), each setting
-  explained in a line; the preset's actions in a bar below. Start the last model when nothing runs. A person's presets are kept on the Studio
+  explained in a line; with no seed in the preset the page draws one per reply and keeps it with the reply (TensorFold
+  derives an unseeded request's seed from its prompt, so asking again would give the same answer); the preset's actions in a bar below. Start the last model when nothing runs. A person's presets are kept on the Studio
   (`/api/chat-presets`), so every browser sees them; those a browser held before move there on the next visit.
   Saving under a name already kept asks before replacing it; one's own preset can be saved again, renamed or
   deleted. Each reply records the sampling it was written with; a replay, greedy, keeps only the stops.
