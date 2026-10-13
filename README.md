@@ -45,11 +45,12 @@ usual places):
 - `capabilities --json`: the families and formats it serves on this chip, the `serve` flags;
 - `info <model>`: a downloaded checkpoint's weights, memory floor and context;
 - `serve <model> --host … --port …` with `--context`, `--thinking`/`--no-thinking`, `--slide` for a copy that learns,
-  and the API key through `TENSORFOLD_API_KEY` (never on the command line); the startup lines are read for the admitted
+  `--cortheon` when Settings' Web research is on (off by default), and the API key through `TENSORFOLD_API_KEY` (never on the command line); the startup lines are read for the admitted
   context, the load time and the CUDA sizing.
 
 Its HTTP API: `/health`, `/metrics`, `/v1/models`, `/v1/chat/completions` (streamed, with the `tensorfold` and
-`speculative` blocks, `"draft": false` for the exactness check, log-probabilities for KL), `/v1/messages`,
+`speculative` blocks, `"draft": false` for the exactness check, log-probabilities for KL), `/v1/completions` with
+`prompt_logprobs` (KL over every position of a fixed text, CUDA from 1.0.8), `/v1/messages`,
 `/v1/responses`, and Living Weights' `/v1/slide/learn` and `/v1/slide/graph`. The frozen Python line (0.6.6) is used
 only for the families the native engine does not serve yet, when it is installed in the Studio's environment.
 
