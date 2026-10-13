@@ -77,7 +77,8 @@ page. Folders are made, renamed and deleted from the list grouped by folder; del
 A pin, a folder or a new title keeps the conversation's time and revision. The open conversation's own actions sit
 above it: Verify speed-up & exactness (13 Oct: its name says it proves the replies unchanged), Replay, Compare with a
 replay, Export (Markdown to read, JSON for all the data). While a reply is written, the first-token time and a live
-speed (from the stream events, each usually one token) show in the pills, the engine's exact figures replacing them
+speed (from the text received, at the last reply's characters per token: a stream event carries one verification
+round, several tokens with drafts) show in the pills, the engine's exact figures replacing them
 at the end, with a third pill for the drafts kept and the tokens per round; the reply bar adds the prompt's reading
 speed (its tokens not restored from the cache over the engine's `prefill_seconds`). With Cortheon on (Settings), the
 Options say "Web research" (off sends `"cortheon": false`), and a reply shows its searches, pages read and sources.
