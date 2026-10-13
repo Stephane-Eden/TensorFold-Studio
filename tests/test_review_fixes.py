@@ -35,15 +35,20 @@ def test_01_a_change_of_engine_mid_poll_sends_no_key_to_the_old_one():
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append((request.url.host, request.url.path, request.headers.get("authorization")))
-        if request.url.path == "/health":
-            s.engine_url, s.api_key = "http://new.test:8080", "KEY-NEW"      # Settings changed while this poll runs
+        if request.url.path == "/health" and request.url.host == "old.test":
+            with eng.target_lock:                         # Settings changed while this poll runs, as the route does
+                s.engine_url, s.api_key = "http://new.test:8080", "KEY-NEW"
+                eng.retargeted()
             return httpx.Response(200, json={"status": "ok"})
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "ok", "model": "new-model"})
         return httpx.Response(200, json={"data": [{"id": "m"}]})
     eng._client = httpx.Client(transport=httpx.MockTransport(handler))
-    before = eng.last_health
-    eng.health()
-    assert all(host == "old.test" and auth == "Bearer KEY-OLD" for host, _, auth in seen)
-    assert eng.last_health is before                     # the old engine's answer does not stand for the new one
+    h = eng.health()
+    old = [(host, auth) for host, _, auth in seen if host == "old.test"]
+    assert old and all(auth == "Bearer KEY-OLD" for _, auth in old)          # the new key never went to the old engine
+    assert all(auth == "Bearer KEY-NEW" for host, _, auth in seen if host == "new.test")
+    assert h.model == "new-model"                         # the reading is the new engine's, read again
 
 
 def test_02_learning_flags_are_the_studios_alone():

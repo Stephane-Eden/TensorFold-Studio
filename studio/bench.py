@@ -250,7 +250,8 @@ def _stream(client: httpx.Client, url: str, headers: dict, body: dict, cancel: t
                 if cancel.is_set():
                     rep.error = "cancelled"
                     break
-                buf += chunk.replace("\r\n", "\n")
+                # normalised on what has gathered, not chunk by chunk: a CRLF can arrive split between two chunks
+                buf = (buf + chunk).replace("\r\n", "\n")
                 while "\n\n" in buf:
                     event, buf = buf.split("\n\n", 1)
                     data = "\n".join(line[5:].strip() for line in event.split("\n") if line.startswith("data:"))
@@ -303,10 +304,13 @@ def _stream(client: httpx.Client, url: str, headers: dict, body: dict, cancel: t
 
 
 def drafts_off_confirmed(runtime: dict) -> bool:
-    """Whether the engine's block says drafts were off, and does not say the opposite as well: a token digest alone,
-    or "drafts: true" beside "drafted: 0", is no evidence."""
+    """Whether the engine's block says drafts were off, and says nothing against it: a token digest alone is no
+    evidence, and "drafts: true" beside "drafted: 0", or "drafts: false" beside tokens drafted, is a contradiction."""
 
-    return runtime.get("drafts") is not True and (runtime.get("drafts") is False or runtime.get("drafted") == 0)
+    drafts, drafted = runtime.get("drafts"), runtime.get("drafted")
+    if drafts is True or (isinstance(drafted, (int, float)) and drafted > 0):
+        return False
+    return drafts is False or drafted == 0
 
 
 def thought(rep: Reply) -> bool:
@@ -408,7 +412,7 @@ class Sampler:
         if self._thread.is_alive():
             self.sample()                              # a reading at the start of the measured work, not up to 1 s later
 
-    def report(self, output_tokens: int) -> dict | None:
+    def report(self, output_tokens: int | None) -> dict | None:
         if self.source is None:
             return None
         start = self.measured_from if self.measured_from is not None else 0.0
@@ -430,6 +434,11 @@ class Sampler:
         # an idle reading above the run's average (taken while a load was settling) gives no energy below zero
         above = max(0.0, energy - (self.idle_watts or 0.0) * span) if self.idle_watts is not None else None
         flags = [row[5] for row in rows if len(row) > 5 and row[5] is not None]
+        # how long the machine was slowed: each throttled reading until the next one (or the end of the measured
+        # work), a reading's interval rather than the sampling period, since boundary readings come between
+        stamps = [row[0] for row in rows] + [end]
+        throttled_s = round(sum(max(0.0, min(stamps[i + 1], end) - row[0]) for i, row in enumerate(rows)
+                                if len(row) > 5 and row[5]), 2)
         heat = rows or self.series                       # the measured part; a run shorter than a sample, the whole
         temps = [x for row in heat for x in row[2:4] if x is not None]
         cpu = [row[2] for row in heat if row[2] is not None]
@@ -440,7 +449,7 @@ class Sampler:
                 "peak_watts": max((w for _, w in pts), default=None), "measured_s": span, "window_s": window,
                 "coverage": coverage, "partial": coverage is not None and coverage < PARTIAL_BELOW,
                 "throttle": {"reported": bool(flags), "throttled": any(flags) if flags else None,
-                             "seconds": sum(self.every for f in flags if f) if flags else None,
+                             "seconds": throttled_s if flags else None,
                              "reasons": sorted(self.reasons)},
                 "energy_j": energy if span else None, "energy_above_idle_j": above if span else None,
                 "output_tokens": output_tokens,
@@ -516,7 +525,10 @@ def summarize(results: list[dict]) -> dict:
                  and b.get("same") is not None]          # a pair the engine could not confirm is not a checked one
         exact = [p for p in pairs if p[1].get("same") is True]    # the check sits on the drafts-off reply
         tps_on, tps_off = med([r["m"]["tps"] for r in on]), med([r["m"]["tps"] for r in off])
-        return {"prompts": len({(r["suite"], r["prompt"]) for r in rows}), "tokens": sum(r["m"]["tokens"] or 0 for r in on),
+        # a reply the engine did not count leaves the total unknown, not short of it
+        counted = all(r["m"]["tokens"] is not None for r in on)
+        return {"prompts": len({(r["suite"], r["prompt"]) for r in rows}),
+                "tokens": sum(r["m"]["tokens"] for r in on) if counted else None,
                 "tps": tps_on, "tps_no_drafts": tps_off,
                 "gain": (tps_on / tps_off - 1) if tps_on and tps_off else None,
                 "ttft": med([r["m"]["ttft"] for r in on]),
@@ -546,7 +558,9 @@ def summarize(results: list[dict]) -> dict:
             waves = {}
             for r in ok:
                 waves.setdefault(r["wave"], []).append(r)
-            totals = [sum(x["m"]["tokens"] or 0 for x in w) / w[0]["wave_s"] for w in waves.values() if w[0]["wave_s"]]
+            # a wave's total only when the engine counted every reply in it: stream events are not tokens
+            totals = [sum(x["m"]["tokens"] for x in w) / w[0]["wave_s"] for w in waves.values()
+                      if w[0]["wave_s"] and all(x["m"]["tokens"] is not None for x in w)]
             waits = [r["m"].get("ttft_client") for r in ok if r["m"].get("ttft_client") is not None]
             levels.append({"concurrency": c, "requests": len(rows), "errors": len(rows) - len(ok),
                            "total_tps": med(totals), "per_request_tps": med([r["m"]["tps"] for r in ok]),
@@ -775,7 +789,10 @@ class Bench:
                     run["memory"] = {"engine_peak_bytes": sampler.engine_peak,
                                      "system_peak_bytes": None if run.get("elsewhere") else sampler.system_peak,
                                      "samples": sampler.samples}
-                    run["hardware"] = sampler.report(sum(r["m"]["tokens"] or 0 for r in results if not r.get("error")))
+                    written = [r["m"]["tokens"] for r in results if not r.get("error")]
+                    # energy per token only over replies the engine counted, all of them: a partial count would charge
+                    # the whole run's energy to some of its tokens
+                    run["hardware"] = sampler.report(sum(written) if written and None not in written else None)
                     if run["hardware"] and run["mode"] not in PER_TOKEN_MODES:
                         # the energy went to work not counted in written tokens (long prompts read, repeats, probes):
                         # a figure per token would charge it all to the few tokens written
@@ -957,6 +974,11 @@ class Bench:
                                        cancel=self._cancel)
                         if side == "reference":
                             replies.append(steps)
+                            if ref_at is None:            # the same engine asked for drafts off: did it say so?
+                                confirmed = drafts_off_confirmed(getattr(steps, "runtime", {}) or {})
+                                ref = run["kl_reference"]
+                                ref["drafts_off"] = confirmed if ref.get("drafts_off") is None else \
+                                    ref["drafts_off"] and confirmed
                         else:
                             p = kl.pair(replies[i], steps)
                             p["prompt"] = f"{suite['id']}/{prompt['id']}"

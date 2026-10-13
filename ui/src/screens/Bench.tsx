@@ -311,7 +311,7 @@ function Report({ run, names, onDelete, toast }: { run: BenchRun; names: Record<
         {run.memory?.engine_peak_bytes ? <div><dt>Engine memory, peak</dt><dd>{gb(run.memory.engine_peak_bytes, 1)}</dd></div> : null}
       </dl>}
       {run.status !== 'running' && run.findings && run.findings.length > 0 && <ul className="findings">{run.findings.map((f, i) => <li key={i}>{f}</li>)}</ul>}
-      {(run.mode === 'quick' || run.mode === 'profile') && o && <p className="small muted">Medians over {o.prompts} prompts and {num(o.tokens)} tokens with drafts, {timing}. {o.checked > 0 ? `Exact means the reply without drafts has the same tokens (${run.results.find((r) => r.compared_by)?.compared_by === 'token_sha' ? 'same token digest' : 'same text'}).` : 'No exactness check in this run.'}</p>}
+      {(run.mode === 'quick' || run.mode === 'profile') && o && <p className="small muted">Medians over {o.prompts} prompts{o.tokens != null ? ` and ${num(o.tokens)} tokens` : ' (tokens not counted by the engine)'} with drafts, {timing}. {o.checked > 0 ? `Exact means the reply without drafts has the same tokens (${run.results.find((r) => r.compared_by)?.compared_by === 'token_sha' ? 'same token digest' : 'same text'}).` : 'No exactness check in this run.'}</p>}
       {(run.mode === 'quick' || run.mode === 'profile') && suites.length > 0 && <Bars rows={suites} names={names} />}
       {run.hardware && <Heat hw={run.hardware} prefill={run.mode === 'prefill'} />}
       {(run.mode === 'quick' || run.mode === 'profile') && suites.length > 0 && (

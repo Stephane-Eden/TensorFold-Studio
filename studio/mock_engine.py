@@ -283,7 +283,11 @@ def _handler(rate_tps: float, api_key: str | None = None):
                                      "choices": [{"index": 0, "finish_reason": "stop", "logprobs": logprobs,
                                                   "message": {"role": "assistant", "content": " ".join(words[:n])}}],
                                      "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": n,
-                                               "total_tokens": prompt_tokens + n}})
+                                               "total_tokens": prompt_tokens + n},
+                                     # the runtime block on a whole reply too, so a reference asked for drafts off
+                                     # can be seen to be off
+                                     **({} if State.plain else {"tensorfold": {"engine": "mock", "drafts": drafts},
+                                                                "speculative": {"drafted": n if drafts else 0}})})
             except (BrokenPipeError, ConnectionResetError):
                 pass
             finally:

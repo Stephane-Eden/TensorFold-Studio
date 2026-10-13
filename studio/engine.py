@@ -338,6 +338,10 @@ class Engine:
         self._stopping = False                   # a stop was asked: its exit code is not a failure
         self._rates_lock = threading.Lock()      # the counters' baseline, moved by one caller at a time
         self._window_asked = False               # /tokenize asked once per target for the served window
+        # the engine's address and key change together, under this lock; each change is a new generation, and a
+        # reading begun under an older one is read again rather than let out (see health())
+        self.target_lock = threading.Lock()
+        self.generation = 0
 
     # -- lifecycle ---------------------------------------------------------------------
     @property
@@ -481,6 +485,17 @@ class Engine:
                     self._emit("[studio] the engine does not die; it may be stuck in the kernel (a GPU driver, a mount)")
         return self.status().to_dict()
 
+    def target(self) -> tuple[int, str, str | None]:
+        """The generation, address and key, read together."""
+
+        with self.target_lock:
+            return self.generation, self.settings.engine_url.rstrip("/"), self.key_in_use()
+
+    def retargeted(self) -> None:
+        """The address or the key changed (the caller holds ``target_lock``): readings begun before are not used."""
+
+        self.generation += 1
+
     def reset_target(self) -> None:
         """The engine's address or mode changed: forget what was read from the previous target."""
 
@@ -589,10 +604,10 @@ class Engine:
             self._subscribers.remove(q)
 
     # -- health ------------------------------------------------------------------------
-    def health(self) -> Health:
-        # the target read once: a change of address or key while this poll runs must not send the new key to the old
-        # engine, nor let the old engine's answer stand for the new one
-        base, key = self.settings.engine_url.rstrip("/"), self.key_in_use()
+    def health(self, _depth: int = 0) -> Health:
+        # the target read once, address and key together: a change while this poll runs must not send the new key to
+        # the old engine, nor let the old engine's answer stand for the new one
+        gen, base, key = self.target()
         hdrs = {"Authorization": f"Bearer {key}"} if key else {}
         try:
             r = self._client.get(base + "/health", headers=hdrs)
@@ -638,8 +653,9 @@ class Engine:
                                       headers=hdrs)
                 if r.status_code == 200 and isinstance(r.json().get("max_model_len"), int):
                     h.context_length = int(r.json()["max_model_len"])
-        if (self.settings.engine_url.rstrip("/"), self.key_in_use()) != (base, key):
-            return h                                  # the target changed meanwhile: this answer is the old engine's
+        if self.target()[0] != gen:                   # the target changed meanwhile: this answer is the old engine's
+            return self.health(_depth + 1) if _depth < 3 else Health(ok=False, status="unreachable",
+                                                           error="the engine's address keeps changing")
         if h.ok and h.counters:
             with self._rates_lock:                   # the baseline is read and moved by one caller at a time
                 h.decode_tps, h.prefill_tps = rates_from_counters(self._counters, h.counters)

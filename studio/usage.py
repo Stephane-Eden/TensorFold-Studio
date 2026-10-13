@@ -56,15 +56,20 @@ class Usage:
                 prev = self._get(db, "totals")
                 # the engine's start time when the Studio knows it: the same model restarted between two readings
                 # can pass its old totals, and only this tells the two engines apart
-                started = info.get("started_at")
+                started, url = info.get("started_at"), info.get("engine_url")
                 same_engine = not (started and prev and prev.get("started")
                                    and abs(float(started) - float(prev["started"])) > 2.0)
-                if prev and same_engine and prev.get("model") == model and \
+                # another server (another address): its totals are its own history, not tokens served since the last
+                # reading; it only sets the baseline
+                other_server = bool(prev and url and prev.get("url") and prev["url"] != url)
+                if other_server:
+                    pass
+                elif prev and same_engine and prev.get("model") == model and \
                         all(now[k] >= prev["totals"].get(k, 0) for k in KINDS):
                     delta = {k: now[k] - prev["totals"].get(k, 0) for k in KINDS}
                 elif prev:                             # another model, or the engine restarted: all of it is new
                     delta = now
-                self._set(db, "totals", {"model": model, "totals": now, "t": t, "started": started})
+                self._set(db, "totals", {"model": model, "totals": now, "t": t, "started": started, "url": url})
             db.execute("insert into usage (hour, model) values (?, ?) on conflict do nothing", (hour, model))
             db.execute("update usage set prompt = prompt + ?, completion = completion + ?, cached = cached + ?, "
                        "requests = requests + ?, peak_decode = max(coalesce(peak_decode, 0), ?), "

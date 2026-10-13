@@ -43,6 +43,14 @@ class Target:
     extra: dict = field(default_factory=dict)    # thinking off, "draft": false…
 
 
+class Steps(list):
+    """A reply's steps, with the engine's own block about it (``runtime``)."""
+
+    def __init__(self, steps=(), runtime: dict | None = None) -> None:
+        super().__init__(steps)
+        self.runtime = runtime or {}
+
+
 def _steps(body: dict) -> list[Step]:
     content = ((body.get("choices") or [{}])[0].get("logprobs") or {}).get("content") or []
     out = []
@@ -72,7 +80,10 @@ def ask(client: httpx.Client, t: Target, messages: list[dict], max_tokens: int,
     r = got[0]
     if r.status_code >= 400:
         raise RuntimeError(f"{r.status_code}: {r.text[:300]}")
-    steps = _steps(r.json())
+    body_out = r.json()
+    steps = Steps(_steps(body_out))
+    # what the engine says of the reply (drafts on or off): a reference asked for drafts off is trusted on its word
+    steps.runtime = {**(body_out.get("tensorfold") or {}), **(body_out.get("speculative") or {})}
     if max_tokens and not steps:
         raise RuntimeError("the engine gave no log-probabilities (it needs `logprobs` on chat completions)")
     return steps
@@ -105,6 +116,12 @@ def divergence(p: dict[bytes, float], q: dict[bytes, float]) -> float:
     return max(0.0, total)                                    # only rounding can take it below zero
 
 
+def usable(top: dict[bytes, float]) -> bool:
+    """A position's probabilities say something: finite, and some mass (a log-probability of -9999 underflows to 0)."""
+
+    return bool(top) and all(math.isfinite(p) for p in top.values()) and sum(top.values()) > 0
+
+
 def same_distribution(p: dict[bytes, float], q: dict[bytes, float], tol: float = 1e-9) -> bool:
     """The same listed tokens with the same probabilities, checked directly rather than read from a zero KL."""
 
@@ -114,10 +131,10 @@ def same_distribution(p: dict[bytes, float], q: dict[bytes, float], tol: float =
 def pair(reference: list[Step], theirs: list[Step]) -> dict:
     """Two replies to one prompt, compared up to and including the first position where their tokens differ."""
 
-    kls, agree, equal, rows = [], 0, 0, []
+    kls, agree, equal, rows, widths = [], 0, 0, [], []
     differs_at, unscored = None, 0
     for k, (a, b) in enumerate(zip(reference, theirs, strict=False)):
-        if not a.top or not b.top:                # no probability at this position on one side: nothing to compare
+        if not usable(a.top) or not usable(b.top):   # no probability mass at this position on one side
             unscored += 1
             if a.token != b.token:
                 differs_at = k
@@ -125,6 +142,7 @@ def pair(reference: list[Step], theirs: list[Step]) -> dict:
             continue
         d = divergence(a.top, b.top)
         kls.append(d)
+        widths.append(min(len(a.top), len(b.top)))
         same = max(a.top, key=a.top.get, default=a.token) == max(b.top, key=b.top.get, default=b.token)
         agree += same
         equal += same_distribution(a.top, b.top)
@@ -135,10 +153,9 @@ def pair(reference: list[Step], theirs: list[Step]) -> dict:
             break                     # the texts part here: what follows was not written on the same text
     identical = differs_at is None and len(reference) == len(theirs)
     rows.sort(key=lambda w: -w["kl"])
-    widths = [len(a.top) for a in reference[:len(kls)]], [len(b.top) for b in theirs[:len(kls)]]
     return {"positions": len(kls), "tokens": len(reference), "kl": kls, "agree": agree, "equal": equal,
             "differs_at": differs_at, "identical": identical, "worst": rows[:5], "requests": 2, "unscored": unscored,
-            "width": [min(w) if w else 0 for w in widths]}         # the fewest alternatives either side gave
+            "width": widths}                       # each scored position: the fewest alternatives either side gave
 
 
 def compare(client: httpx.Client, ref: Target, cand: Target, messages: list[dict], *, max_tokens: int = MAX_TOKENS,

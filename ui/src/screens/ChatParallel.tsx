@@ -105,7 +105,8 @@ export function ParallelPanel({ model, engine, sampling }: { model: string; engi
 
   const base = results.find((r) => r.n === 1)
   const now = (performance.now() - t0.current) / 1000
-  const liveTokens = slots.reduce((a, s) => a + (s.tokens || s.counted), 0)
+  // while replies stream, the engine has not counted yet: what grows is stream events, said as such
+  const liveEvents = slots.reduce((a, s) => a + s.counted, 0)
   return (
     <div className="presetbox parallel">
       <div className="row">
@@ -123,12 +124,12 @@ export function ParallelPanel({ model, engine, sampling }: { model: string; engi
         {cap ? ` This engine serves up to ${cap} requests at once; more wait their turn.` : ''} Try 1 first: the table then shows what batching adds.
       </p>
       {slots.length > 0 && <>
-        <div className="small"><b>{running ? `${num(liveTokens)} tokens in ${now.toFixed(1)} s, ${num(Math.round(liveTokens / Math.max(0.1, now)))} tok/s in total so far`
+        <div className="small"><b>{running ? `${num(liveEvents)} stream events in ${now.toFixed(1)} s (tokens are counted at the end)`
           : `${slots.filter((s) => s.outcome === 'done' || s.outcome === 'length').length} of ${slots.length} replies done`}</b></div>
         <div className="pgrid">
           {slots.map((s, i) => <div key={i} className={`pcard ${s.outcome}`}>
-            <div className="small muted">#{i + 1} · {s.outcome === 'running' ? (s.tFirst ? `${num(s.tokens || s.counted)} tokens` : 'waiting for its first token')
-              : s.outcome === 'error' ? 'error' : `${num(s.tokens)} tokens, ${s.tps ? Math.round(s.tps) : '—'} tok/s, first after ${s.ttft != null ? s.ttft.toFixed(1) : '—'} s${s.outcome === 'length' ? ', cut' : s.outcome === 'stopped' ? ', stopped' : ''}`}</div>
+            <div className="small muted">#{i + 1} · {s.outcome === 'running' ? (s.tFirst ? `${num(s.counted)} events so far` : 'waiting for its first token')
+              : s.outcome === 'error' ? 'error' : `${s.tokens ? `${num(s.tokens)} tokens` : 'tokens not counted by the engine'}, ${s.tps ? Math.round(s.tps) : '—'} tok/s, first after ${s.ttft != null ? s.ttft.toFixed(1) : '—'} s${s.outcome === 'length' ? ', cut' : s.outcome === 'stopped' ? ', stopped' : ''}`}</div>
             <div className="small pprompt">{s.prompt}</div>
             <div className="ptext">{s.error ? <span className="bad">{s.error}</span> : s.text || (s.counted ? <span className="muted">thinking…</span> : '')}</div>
           </div>)}

@@ -87,7 +87,11 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
   const [convs, setConvs] = useState<ConversationRow[]>([])
   const [q, setQ] = useState('')
   const opened = useRef<unknown[] | null>(null)            // the messages as last opened: not saved back unchanged
-  const refreshList = useCallback((query = q) => api.conversations(query).then((r) => setConvs(r.conversations)).catch(() => {}), [q])
+  const [more, setMore] = useState(false)                 // older conversations beyond the first page
+  const refreshList = useCallback((query = q) => api.conversations(query).then((r) => { setConvs(r.conversations); setMore(!!r.more) }).catch(() => {}), [q])
+  const loadMore = () => api.conversations(q, convs.filter((c) => !c.pinned).length).then((r) => {   // the offset counts the unpinned
+    setConvs((old) => [...old, ...r.conversations.filter((c) => !old.some((o) => o.id === c.id))]); setMore(!!r.more)
+  }).catch((e) => toast(String(e), 'bad'))
   const [text, setText] = useState('')
   const [thinking, setThinking] = useState<'default' | 'on' | 'off'>(stored.current?.thinking ?? settings?.thinking ?? 'default')
   const [budget, setBudget] = useState<number>(stored.current?.budget ?? DEFAULT_BUDGET)
@@ -420,7 +424,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
       {saveError === 'failed' && <div className="notice">The Studio did not save the conversation; it is tried again at the next change.</div>}
       {saveError === 'conflict' && <div className="notice">This conversation was changed elsewhere (another page, or a replay) since this page read it, so it is no longer saved from here. {convId && <button className="btn sm" onClick={() => openConversation(convId, true)}>Reopen it</button>} to see the latest and go on; what this page holds and the server lacks is lost.</div>}
       <div className="chatwrap">
-      <ConversationList convs={convs} convId={convId} q={q} setQ={setQ} open={(id) => openConversation(id)} refresh={() => refreshList()} toast={toast}
+      <ConversationList convs={convs} more={more} loadMore={loadMore} convId={convId} q={q} setQ={setQ} open={(id) => openConversation(id)} refresh={() => refreshList()} toast={toast}
         onDeleted={(id) => { if (id === convId) newConversation(true) }} />
       <div className="chat">
         {convId && (() => { const c = convs.find((x) => x.id === convId); const family = sameQuestions(convs, convId); const names = namesOf(c ? [c, ...family] : family); return <div className="convbar">

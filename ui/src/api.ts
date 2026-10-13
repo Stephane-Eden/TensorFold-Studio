@@ -308,7 +308,7 @@ export const api = {
   saveSettings: (patch: Partial<Settings>) => j<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(patch) }),
   connect: (where: 'here' | 'away' = 'here') => j<ConnectInfo>(`/api/connect${where === 'away' ? `?where=away&relay=${encodeURIComponent(location.origin)}` : ''}`),
   connectTest: (recipe: string) => j<{ recipe: string; ok: boolean; checks: CheckResult[]; at: number }>('/api/connect/test', { method: 'POST', body: JSON.stringify({ recipe }) }, 300000),
-  conversations: (q = '') => j<{ conversations: ConversationRow[] }>(`/api/conversations${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  conversations: (q = '', offset = 0) => j<{ conversations: ConversationRow[]; more?: boolean }>(`/api/conversations?q=${encodeURIComponent(q)}&offset=${offset}`),
   conversation: (id: string) => j<Conversation>(`/api/conversations/${id}`),
   conversationCreate: (body: Partial<Conversation>) => j<Conversation>('/api/conversations', { method: 'POST', body: JSON.stringify(body) }),
   conversationSave: (id: string, body: Partial<Conversation> & { rev?: number }) => j<Conversation>(`/api/conversations/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
@@ -389,7 +389,7 @@ export const api = {
 
 // The Bench: a run's summary per suite and overall, as `studio/bench.py` computes it.
 export type BenchBlock = {
-  prompts: number; tokens: number; tps: number | null; tps_no_drafts: number | null; gain: number | null
+  prompts: number; tokens: number | null; tps: number | null; tps_no_drafts: number | null; gain: number | null
   ttft: number | null; ttft_answer?: number | null; prefill_s: number | null; gap_p50: number | null; gap_p95: number | null
   acceptance: number | null; checked: number; exact: number; errors: number
 }
@@ -402,7 +402,7 @@ export type BenchResult = {
   same?: boolean; compared_by?: 'token_sha' | 'text'
   passed?: boolean; read?: string; expected?: string | null     // a quality item: its score, what was read, the answer
   kl?: { positions: number; agree: number; differs_at: number | null; identical: boolean }   // a KL run's prompt
-  m: { tokens: number; tps: number | null; ttft: number | null; prefill_s: number | null; timing: 'engine' | 'studio'
+  m: { tokens: number | null; tps: number | null; ttft: number | null; prefill_s: number | null; timing: 'engine' | 'studio'
     gap_p50: number | null; gap_p95: number | null; finish: string | null; sha: string | null; runtime: Record<string, unknown> & { acceptance_rate?: number } }
 }
 export type BenchMode = 'quick' | 'profile' | 'prefill' | 'load' | 'quality' | 'tools' | 'kl'
@@ -487,5 +487,5 @@ export type PullStatus = {
 
 export const GB = 1024 ** 3
 export { bytes as gb } from './units'          // sizes roll over to MB and TB (`units.ts`)
-export const num = (n: number) => n.toLocaleString('en-US')
+export const num = (n: number | null | undefined) => (n == null ? '—' : n.toLocaleString('en-US'))   // — : not known
 export const shortName = (id: string) => id.split('/').pop() ?? id

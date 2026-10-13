@@ -179,7 +179,12 @@ def uses_tools(doc: dict) -> bool:
     ws = (doc.get("settings") or {}).get("workshop") or {}
     if ws.get("tools") or ws.get("output") not in (None, "text"):
         return True
-    return any(m.get("role") == "tool" or m.get("tool_calls") for m in doc.get("messages") or [])
+    # the settings may have changed since: what the turns themselves recorded says the workshop was used (a tool
+    # turn, a reply checked as JSON, a request that carried tools or a reply format)
+    return any(m.get("role") == "tool" or m.get("tool_calls") or m.get("json") is not None
+               or any(k in (m.get("request") or {}) for k in ("tools", "response_format"))
+               or (m.get("request") or {}).get("output") not in (None, "text")
+               for m in doc.get("messages") or [])
 
 
 def _same_tokens(ma: dict, mb: dict, asked_off: tuple[bool, bool]) -> bool | None:
@@ -187,10 +192,16 @@ def _same_tokens(ma: dict, mb: dict, asked_off: tuple[bool, bool]) -> bool | Non
     side written with drafts off that the engine did not confirm off."""
 
     sa, sb = ma.get("stats") or {}, mb.get("stats") or {}
-    if "error" in (ma.get("outcome"), mb.get("outcome")) or not sa.get("sha") or not sb.get("sha"):
+    complete = ("done", "length")                 # an error, a stop, an interruption: the reply is not whole
+    if ma.get("outcome", "done") not in complete or mb.get("outcome", "done") not in complete:
         return None
-    if any(off and s.get("drafts") is not False for off, s in zip(asked_off, (sa, sb))):
+    if not sa.get("sha") or not sb.get("sha"):
         return None
+    for asked, st in zip(asked_off, (sa, sb)):    # each side as it was asked: off confirmed off, on confirmed on
+        if asked is True and st.get("drafts") is not False:
+            return None
+        if asked is False and st.get("drafts") is not True:
+            return None
     return sa["sha"] == sb["sha"]
 
 
@@ -200,7 +211,9 @@ def compare_replies(a: dict, b: dict) -> dict:
     # the same question pairs the replies, whether the conversation is a replay or the original
     ra, rb = _by_question(a), _by_question(b)
     # a side replayed with drafts off counts only where the engine confirmed them off
-    off_a, off_b = (((d.get("settings") or {}).get("target") or {}).get("drafts") is False for d in (a, b))
+    # what each side was asked: drafts off (True), on (False), or nothing said (None: an original conversation)
+    off_a, off_b = ({False: True, True: False}.get(((d.get("settings") or {}).get("target") or {}).get("drafts"))
+                    for d in (a, b))
     rows = []
     for q, ma in ra.items():
         mb = rb.get(q)
@@ -208,7 +221,8 @@ def compare_replies(a: dict, b: dict) -> dict:
             continue
         sa, sb = ma.get("stats") or {}, mb.get("stats") or {}
         ta, tb = sa.get("tps"), sb.get("tps")
-        rows.append({"question": q[:200], "a": {"text": ma.get("content", ""), "tps": ta, "ttft": sa.get("ttft"),
+        text, rank = q
+        rows.append({"question": (text if rank == 0 else f"{text} ({rank + 1})")[:200], "a": {"text": ma.get("content", ""), "tps": ta, "ttft": sa.get("ttft"),
                                                 "tokens": sa.get("tokens"), "sha": sa.get("sha"), "outcome": ma.get("outcome")},
                      "b": {"text": mb.get("content", ""), "tps": tb, "ttft": sb.get("ttft"), "tokens": sb.get("tokens"),
                            "sha": sb.get("sha"), "outcome": mb.get("outcome")},
@@ -227,17 +241,18 @@ def compare_replies(a: dict, b: dict) -> dict:
             "checked": sum(1 for r in rows if r["same_tokens"] is not None)}
 
 
-def _by_question(doc: dict) -> dict[str, dict]:
-    """Each question's reply (the last one given to it), keyed by the question's text and its rank among equals."""
+def _by_question(doc: dict) -> dict[tuple[str, int], dict]:
+    """Each question's reply (the last one given to it), keyed by the question's exact text and its rank among
+    equals: a question that reads "q (2)" is not taken for the second "q"."""
 
-    out: dict[str, dict] = {}
+    out: dict[tuple[str, int], dict] = {}
     seen: dict[str, int] = {}
     q = None
     for m in doc.get("messages", []):
         if m["role"] == "user":
             n = seen.get(m["content"], 0)
             seen[m["content"]] = n + 1
-            q = m["content"] if n == 0 else f"{m['content']} ({n + 1})"
+            q = (m["content"], n)
         elif m["role"] == "assistant" and q is not None:
             out[q] = m
     return out

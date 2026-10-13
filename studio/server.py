@@ -959,12 +959,16 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
             if target_changed and eng.owned:            # its key and its process belong to the address it was given
                 raise HTTPException(409, f"this Studio runs {eng.model} at {s.engine_url}: stop it before pointing "
                                          "the Studio at another engine")
-            for key, value in patch.items():
-                setattr(s, key, value)
-            if held and s.share and not s.api_key:
-                s.api_key = settings_mod.new_api_key()          # sharing without a key is never offered
-            if target_changed:
-                eng.reset_target()                           # nothing read from the previous engine applies here
+            with eng.target_lock:                            # address and key change together, as one new target
+                before = (s.engine_url, s.api_key, s.remote)
+                for key, value in patch.items():
+                    setattr(s, key, value)
+                if held and s.share and not s.api_key:
+                    s.api_key = settings_mod.new_api_key()      # sharing without a key is never offered
+                if (s.engine_url, s.api_key, s.remote) != before:
+                    eng.retargeted()
+                if target_changed:
+                    eng.reset_target()                       # nothing read from the previous engine applies here
             save_settings()
         finally:
             if held:
@@ -977,7 +981,9 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
 
         try:
             with gate.hold("a new engine key"):              # a comparison restarting the engine would take it midway
-                s.api_key = settings_mod.new_api_key()
+                with eng.target_lock:
+                    s.api_key = settings_mod.new_api_key()
+                    eng.retargeted()
                 save_settings()
         except Busy as exc:
             raise HTTPException(409, str(exc)) from exc
@@ -991,8 +997,9 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
     app.state.chats = chats
 
     @app.get("/api/conversations")
-    def chat_list(q: str = ""):
-        return {"conversations": chats.list(q)}
+    def chat_list(q: str = "", offset: int = 0):
+        rows, more = chats.page(q, offset=max(0, offset))
+        return {"conversations": rows, "more": more}
 
     @app.post("/api/conversations")
     def chat_create(body: dict[str, Any]):

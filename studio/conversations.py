@@ -26,7 +26,7 @@ def _name_ok(name: object) -> bool:
     carries the name as one segment."""
 
     return isinstance(name, str) and bool(name.strip()) and len(name.strip()) <= FOLDER_CHARS and \
-        "/" not in name and "\\" not in name
+        "/" not in name and "\\" not in name and name.strip() not in (".", "..")   # a dot segment is dropped from a URL
 # the presets the page ships with; a person's own cannot take their names
 BUILT_IN_PRESETS = ("Model defaults", "Precise", "Creative", "Code reviewer", "Short answers")
 # a preset's sampling, each field null for the model's own value: (kind, low, high)
@@ -270,9 +270,13 @@ class Conversations:
         with self._lock, self._db() as db:
             return db.execute("delete from conversations where id=?", (cid,)).rowcount > 0
 
-    def list(self, query: str = "", limit: int = 200) -> list[dict]:
-        """Pinned first, then most recent; a query matches the title or any message's text, case aside, over every
-        conversation kept (not only the latest), and a pinned one is never left out by the limit."""
+    def list(self, query: str = "", limit: int = 200, offset: int = 0) -> list[dict]:
+        return self.page(query, limit, offset)[0]
+
+    def page(self, query: str = "", limit: int = 200, offset: int = 0) -> tuple[list[dict], bool]:
+        """Pinned first, then most recent, and whether more follow. Every pinned conversation comes on the first page,
+        whatever the limit; the limit and ``offset`` count the others, page by page. A query matches the title or any
+        message's text, case aside, over every conversation kept."""
 
         out = []
         q = query.strip().lower()
@@ -302,9 +306,9 @@ class Conversations:
                         "replay_of": (doc.get("settings") or {}).get("replay_of"),
                         "target": (doc.get("settings") or {}).get("target"),
                         **({"match": hit} if q else {})})
-            if len(out) >= limit:
-                break
-        return out
+        pins = [x for x in out if x["pinned"]] if offset == 0 else []
+        rest = [x for x in out if not x["pinned"]]
+        return pins + rest[offset:offset + limit], len(rest) > offset + limit
 
     @staticmethod
     def _shown(doc: dict) -> dict:

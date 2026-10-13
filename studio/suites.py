@@ -51,8 +51,9 @@ def validate(doc: object) -> dict:
         if isinstance(tokens, bool) or not isinstance(tokens, int) or not 16 <= tokens <= 4096:
             raise ValueError(f"prompt {i}: the reply length must be 16 to 4,096 tokens")
         pid = p.get("id") if isinstance(p.get("id"), str) and re.fullmatch(r"[\w-]{1,40}", p["id"]) else f"p{i}"
-        if pid in seen:
-            pid = f"p{i}"
+        n = i
+        while pid in seen:                     # a repeated id gets one not taken: two prompts never share a result
+            pid, n = f"p{n}", n + 1
         seen.add(pid)
         out.append({"id": pid, "user": user, "system": system.strip() if system else None, "max_tokens": tokens,
                     **({"history": history} if history else {})})

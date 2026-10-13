@@ -21,8 +21,9 @@ def kl_line(run: dict) -> str:
     """A KL run in one line: against what, the divergence, the agreement."""
 
     k, ref = run["kl"], run.get("kl_reference") or {}
-    against = "the same engine with drafts off" if ref.get("kind") == "drafts-off" else \
-        f"{ref.get('model')} at {ref.get('url')}"
+    against = ("the same engine with drafts off" if ref.get("drafts_off") is not False else
+               "the same engine asked for drafts off, which it did not confirm") if ref.get("kind") == "drafts-off" \
+        else f"{ref.get('model')} at {ref.get('url')}"
     done = run.get("kl_load_done") or {}
     full = done.get("full_share")
     if not run.get("kl_load"):
@@ -126,6 +127,10 @@ def findings(run: dict) -> list[str]:
                    "positions it wrote, so this run says nothing of the distributions.")
     if run.get("mode") == "kl" and k and k.get("positions"):
         out.append(kl_line(run))
+        if (run.get("kl_reference") or {}).get("kind") == "drafts-off" and \
+                (run.get("kl_reference") or {}).get("drafts_off") is False:
+            out.append("The engine did not confirm the reference replies were written with drafts off: if it ignored "
+                       "the request, this run compares the engine with itself and its agreement says nothing.")
         if k.get("unscored"):
             out.append(f"{k['unscored']} positions came without log-probabilities on one side and were left out of "
                        "the figures.")
@@ -187,6 +192,9 @@ def findings(run: dict) -> list[str]:
             out.append(f"Each of those {best['concurrency']} requests then writes at {_tps(best['per_request_tps'])} "
                        f"tokens per second, against {_tps(one['per_request_tps'])} alone, and the slowest waits "
                        f"{_secs(best['ttft_p95'])} for its first token.")
+        elif not any(x.get("total_tps") for x in load):
+            out.append("The engine gave no token counts, so no total speed can be given: a stream event is not a "
+                       "token.")
         else:
             out.append(f"Serving several at once does not raise the total: {_tps(one.get('total_tps'))} tokens per "
                        "second alone is the most this engine gives here.")
@@ -521,7 +529,7 @@ def html_report(run: dict) -> str:
                     "".join(f"<li>{_e(f)}</li>" for f in found) + "</ul></section>")
     suites = ((run.get("summary") or {}).get("suites") or {})
     if run.get("mode") in ("quality", "tools"):
-        missed = [r for r in run.get("results") or [] if "passed" in r and not r["passed"]]
+        missed = [r for r in run.get("results") or [] if r.get("passed") is False]   # an ungraded request is not missed
         if missed:
             rows = "".join(f"<tr><td>{_e(names.get(r['suite'], r['suite']))}</td><td>{_e(r['prompt'])}</td>"
                            f"<td>{_e(r.get('expected') or '—')}</td><td>{_e(r.get('read') or '')}</td></tr>" for r in missed)

@@ -65,7 +65,8 @@ export function namesOf(rows: ConversationRow[]): Map<string, string> {
   return new Map(rows.map((c, i) => [c.id, base.filter((b) => b === base[i]).length > 1 ? `${base[i]} (${at(c.created)})` : base[i]]))
 }
 
-export function ConversationList({ convs, convId, q, setQ, open, refresh, onDeleted, toast }: {
+export function ConversationList({ convs, more, loadMore, convId, q, setQ, open, refresh, onDeleted, toast }: {
+  more?: boolean; loadMore?: () => void
   convs: ConversationRow[]; convId: string | null; q: string; setQ: (q: string) => void
   open: (id: string) => void; refresh: () => void; onDeleted: (id: string) => void; toast: Ctx['toast']
 }) {
@@ -149,6 +150,7 @@ export function ConversationList({ convs, convId, q, setQ, open, refresh, onDele
         </div>
       ))}
       {!convs.length && <p className="small muted">{q ? 'No conversation matches.' : 'Conversations are kept here.'}</p>}
+      {more && loadMore && <div className="actions"><button className="btn sm quiet" onClick={loadMore}>Show older conversations</button></div>}
     </section>
   )
 }

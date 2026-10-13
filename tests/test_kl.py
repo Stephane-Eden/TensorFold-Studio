@@ -56,7 +56,7 @@ def _run(tmp_path, base, **kw):
 def test_bench_kl_run_against_drafts_off_under_load_and_another_address(tmp_path, mock):
     run = _run(tmp_path, mock)
     assert run["status"] == "done", run.get("error")
-    assert run["kl_reference"] == {"kind": "drafts-off"} and run["kl"]["prompts"] == 2
+    assert run["kl_reference"] == {"kind": "drafts-off", "drafts_off": True} and run["kl"]["prompts"] == 2
     assert run["kl"]["mean_kl"] == 0.0 and run["kl"]["identical"] == 1.0 and run["kl"]["positions"] > 10
     loaded = _run(tmp_path, mock, kl_load=2)
     assert loaded["status"] == "done" and loaded["kl_load"] == 2 and loaded["kl"]["mean_kl"] == 0.0
@@ -190,7 +190,7 @@ def test_a_narrow_distribution_is_said_rather_than_read_as_an_exact_match():
     ref = [S("The", The=0.9, A=0.05), S(" sky", sky=0.8, sea=0.1)]
     narrow = [kl.Step(b"The", {b"The": 0.9}), kl.Step(b" sky", {b" sky": 0.8})]   # an engine capping top_logprobs at 1
     p = kl.pair(ref, narrow)
-    assert p["width"] == [2, 1]
+    assert p["width"] == [1, 1]                    # each scored position: the fewest alternatives either side gave
     s = kl.summary([dict(p, prompt="a")])
     assert s["width"] == 1 and s["top"] == kl.TOP
     run = {"mode": "kl", "kl": s, "results": [], "summary": {"overall": {}}, "notes": [], "model": "m"}
