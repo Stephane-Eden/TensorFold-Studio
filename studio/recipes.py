@@ -351,7 +351,7 @@ def run_check(check: str, c: Ctx, client: httpx.Client, extra: dict | None = Non
             r.raise_for_status()
             window = _window(client, base, c, r.json())
             if not window:
-                return _out(check, True, "the engine does not say its window; not checked", t0)
+                return _out(check, True, "the engine does not say its window; not checked", t0, skipped=True)
             ok = int(window) >= need
             return _out(check, ok, f"{int(window):,} tokens served" + ("" if ok else f"; this tool needs {need:,} or more: "
                         "set Longest conversation in Settings"), t0)
@@ -419,8 +419,11 @@ def run_check(check: str, c: Ctx, client: httpx.Client, extra: dict | None = Non
     return _out(check, False, "unknown check", t0)
 
 
-def _out(check: str, ok: bool, detail: str, t0: float) -> dict:
-    return {"id": check, "label": CHECK_LABELS.get(check, check), "ok": bool(ok), "detail": detail,
+def _out(check: str, ok: bool, detail: str, t0: float, *, skipped: bool = False) -> dict:
+    """One check's result; ``skipped``: it could not be made, which is neither a pass nor a failure (the test as a
+    whole is not failed by it, and the page does not tick it)."""
+
+    return {"id": check, "label": CHECK_LABELS.get(check, check), "ok": bool(ok), "skipped": skipped, "detail": detail,
             "seconds": round(time.perf_counter() - t0, 2)}
 
 

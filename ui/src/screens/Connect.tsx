@@ -113,7 +113,7 @@ export default function Connect({ engine, settings, saveSettings, refreshSetting
             {current.compose && <button className="btn ghost" onClick={() => download('/api/connect/compose/open-webui', 'docker-compose.yml').catch((e) => toast(`Not downloaded: ${e}`, 'bad'))}>Download docker-compose.yml</button>}
             {current.checks.length > 0 && <span className="small muted">The test makes the calls {current.name} makes ({current.protocol === 'anthropic' ? 'Anthropic Messages' : current.protocol === 'responses' ? 'the Responses API' : 'OpenAI chat completions'}) to the AI, from this machine.</span>}
           </div>
-          {(() => { const r = results[current.id]; return r && r !== 'running' ? <ul className="checks">{r.checks.map((c) => <li key={c.id} className={c.ok ? 'good' : 'bad'}><b>{c.ok ? '✓' : '✗'}</b> {c.label} <span className="muted">{c.detail}, {c.seconds} s</span></li>)}</ul> : null })()}
+          {(() => { const r = results[current.id]; return r && r !== 'running' ? <ul className="checks">{r.checks.map((c) => <li key={c.id} className={c.skipped ? 'muted' : c.ok ? 'good' : 'bad'}><b>{c.skipped ? '–' : c.ok ? '✓' : '✗'}</b> {c.label} <span className="muted">{c.detail}, {c.seconds} s</span></li>)}</ul> : null })()}
           <p className="small muted" style={{ marginBottom: 0 }}>{current.checked?.date ? `Checked end to end with ${current.name} itself on ${current.checked.date}, ${current.checked.machine}: ${current.checked.how}` : current.checked?.not ? `Not checked with ${current.name} itself: ${current.checked.not}` : `Not yet checked with ${current.name} itself; the test above checks the engine's side.`}</p>
         </div>
       </>}

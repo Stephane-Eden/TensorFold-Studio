@@ -37,6 +37,8 @@ def hold(wait: float = 15.0, path: Path | None = None):
     """Take the lock, waiting up to `wait` seconds for a Studio that is stopping (a service restart); the open file
     is returned and must be kept for the life of the process. None when another Studio keeps it."""
 
+    if path is None:
+        settings_mod.secure_config_dir()
     path = path or lock_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     f = open(path, "a+")  # noqa: SIM115 - kept open for the life of the process: the lock is the open file

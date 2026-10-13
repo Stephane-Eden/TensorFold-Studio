@@ -111,15 +111,18 @@ class Downloads:
         Refused, with both figures, when the disk cannot hold what is left to download."""
 
         with self._lock:
-            job = self.jobs.setdefault(repo, Progress(repo))
-            if job.state == "running":
-                return job
+            old = self.jobs.get(repo)
+            if old is not None and old.state == "running":
+                return old
+            # each attempt its own record: a stopped attempt's worker, finishing late, writes only to its own
+            job = Progress(repo)
             on_disk = bytes_on_disk(repo)
             if total_bytes:
                 need, free = max(0, int(total_bytes) - on_disk) + MARGIN_BYTES, free_bytes()
                 if free < need:
                     raise NoRoom(f"not enough room on disk: this download needs {_gb(need)} more "
                                  f"(a {_gb(MARGIN_BYTES)} margin included) and {_gb(free)} are free")
+            self.jobs[repo] = job
             job.state, job.error, job.started_at, job.finished_at = "running", None, time.time(), None
             job.total_bytes, job.done_bytes = int(total_bytes or 0), on_disk
             env = {**os.environ, "HF_HUB_DISABLE_PROGRESS_BARS": "1"}

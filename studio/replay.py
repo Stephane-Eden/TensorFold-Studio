@@ -17,6 +17,7 @@ import time
 import httpx
 
 from . import bench, compare, conversations
+from . import settings as settings_mod
 
 
 def label(target: dict) -> str:
@@ -33,11 +34,16 @@ class Replays:
         self.current: dict | None = None
         self._thread: threading.Thread | None = None
         self._cancel = threading.Event()
+        self._starting = threading.Lock()                # the busy check and the worker's start, one request at a time
 
     def busy(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
     def start(self, cid: str, target: dict) -> dict:
+        with self._starting:
+            return self._start(cid, target)
+
+    def _start(self, cid: str, target: dict) -> dict:
         if self.busy():
             raise RuntimeError("a replay is already going; wait for it or stop it")
         src = self.chats.get(cid)
@@ -46,11 +52,16 @@ class Replays:
         turns = [i for i, m in enumerate(src["messages"]) if m["role"] == "user"]
         if not turns:
             raise ValueError("this conversation has no question to replay")
+        if uses_tools(src):
+            raise ValueError("this conversation used tools or a reply format (the workshop): a replay sends questions "
+                             "only, so it would measure another conversation; replay one without them")
         if target.get("kind") == "address":
             if not isinstance(target.get("url"), str) or not target.get("model"):
                 raise ValueError("another engine needs its address and a model")
-            base, key, model, engine = target["url"].rstrip("/").removesuffix("/v1"), target.get("key") or None, \
-                target["model"], target.get("label") or target["url"]
+            # a user or password in the address would be kept in the replay's title, settings and exports
+            url = settings_mod._engine_url(target["url"]).removesuffix("/v1")
+            target = {**target, "url": url}
+            base, key, model, engine = url, target.get("key") or None, target["model"], target.get("label") or url
         else:
             base, key, model, engine = self.served()
             if not model:
@@ -65,7 +76,7 @@ class Replays:
             first = o
             seen.add(up)
         doc = self.chats.create({"messages": [], "settings": settings,
-                                 "title": f"Replay: {first['title'][:50]} ({label(public)})"})
+                                 "title": f"Replay: {first['title'][:50]} ({label(public)})"[:200]})
         self.current = {"id": doc["id"], "of": cid, "done": 0, "total": len(turns), "status": "running"}
         self._cancel.clear()
         self._thread = threading.Thread(target=self._go, args=(doc["id"], doc["rev"], src, base, key, model, engine,
@@ -162,11 +173,34 @@ class Replays:
                                                  "replay_status": self.current["status"]}}, rev=rev)
 
 
+def uses_tools(doc: dict) -> bool:
+    """Whether a conversation leaned on the workshop (tools, a reply format, tool turns): a replay cannot rebuild it."""
+
+    ws = (doc.get("settings") or {}).get("workshop") or {}
+    if ws.get("tools") or ws.get("output") not in (None, "text"):
+        return True
+    return any(m.get("role") == "tool" or m.get("tool_calls") for m in doc.get("messages") or [])
+
+
+def _same_tokens(ma: dict, mb: dict, asked_off: tuple[bool, bool]) -> bool | None:
+    """The same tokens, a difference, or None when it cannot be said: a reply that failed, a digest missing, or a
+    side written with drafts off that the engine did not confirm off."""
+
+    sa, sb = ma.get("stats") or {}, mb.get("stats") or {}
+    if "error" in (ma.get("outcome"), mb.get("outcome")) or not sa.get("sha") or not sb.get("sha"):
+        return None
+    if any(off and s.get("drafts") is not False for off, s in zip(asked_off, (sa, sb))):
+        return None
+    return sa["sha"] == sb["sha"]
+
+
 def compare_replies(a: dict, b: dict) -> dict:
     """Two conversations, turn by turn: the same question's replies side by side, speed and sameness tested."""
 
     # the same question pairs the replies, whether the conversation is a replay or the original
     ra, rb = _by_question(a), _by_question(b)
+    # a side replayed with drafts off counts only where the engine confirmed them off
+    off_a, off_b = (((d.get("settings") or {}).get("target") or {}).get("drafts") is False for d in (a, b))
     rows = []
     for q, ma in ra.items():
         mb = rb.get(q)
@@ -179,7 +213,7 @@ def compare_replies(a: dict, b: dict) -> dict:
                      "b": {"text": mb.get("content", ""), "tps": tb, "ttft": sb.get("ttft"), "tokens": sb.get("tokens"),
                            "sha": sb.get("sha"), "outcome": mb.get("outcome")},
                      "same_text": bool(ma.get("content")) and ma.get("content") == mb.get("content"),
-                     "same_tokens": bool(sa.get("sha")) and sa.get("sha") == sb.get("sha"),
+                     "same_tokens": _same_tokens(ma, mb, (off_a, off_b)),
                      "change": (tb / ta - 1) if ta and tb else None})
     changes = [r["change"] for r in rows if r["change"] is not None]
     up, down = sum(1 for c in changes if c > 0), sum(1 for c in changes if c < 0)
@@ -189,7 +223,8 @@ def compare_replies(a: dict, b: dict) -> dict:
             "b": {"id": b["id"], "title": b["title"], "settings": b.get("settings")}, "turns": rows,
             "speed": {"median_change": med, "b_faster": up, "b_slower": down, "p": p,
                       "within_noise": med is None or abs(med) < compare.SAME_SPEED or p >= compare.NOISE_P},
-            "same_text": sum(1 for r in rows if r["same_text"]), "same_tokens": sum(1 for r in rows if r["same_tokens"])}
+            "same_text": sum(1 for r in rows if r["same_text"]), "same_tokens": sum(1 for r in rows if r["same_tokens"]),
+            "checked": sum(1 for r in rows if r["same_tokens"] is not None)}
 
 
 def _by_question(doc: dict) -> dict[str, dict]:

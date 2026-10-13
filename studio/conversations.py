@@ -8,6 +8,7 @@ reply still marked as streaming becomes when the page that streamed it is gone.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import threading
@@ -18,6 +19,14 @@ from pathlib import Path
 MAX_MESSAGES = 2000
 MAX_BYTES = 8 * 1024 * 1024        # one conversation, as JSON
 FOLDER_CHARS = 60
+
+
+def _name_ok(name: object) -> bool:
+    """A folder's or a preset's name: 1 to 60 characters, and no slash, since the address that renames or removes it
+    carries the name as one segment."""
+
+    return isinstance(name, str) and bool(name.strip()) and len(name.strip()) <= FOLDER_CHARS and \
+        "/" not in name and "\\" not in name
 # the presets the page ships with; a person's own cannot take their names
 BUILT_IN_PRESETS = ("Model defaults", "Precise", "Creative", "Code reviewer", "Short answers")
 # a preset's sampling, each field null for the model's own value: (kind, low, high)
@@ -35,8 +44,8 @@ def validate_preset(body: object) -> dict:
     if not isinstance(body, dict):
         raise ValueError("a preset is an object")  # noqa: TRY004 - one error type for the page
     name = body.get("name")
-    if not isinstance(name, str) or not name.strip() or len(name.strip()) > FOLDER_CHARS:
-        raise ValueError(f"a preset's name is 1 to {FOLDER_CHARS} characters")
+    if not _name_ok(name):
+        raise ValueError(f"a preset's name is 1 to {FOLDER_CHARS} characters, without a slash")
     if name.strip() in BUILT_IN_PRESETS:
         raise ValueError("that name is one of the built-in presets")
     system = body.get("system") or ""
@@ -103,8 +112,8 @@ def validate(body: object) -> dict:
         out["pinned"] = body["pinned"]
     if "folder" in body:
         f = body["folder"]
-        if f is not None and (not isinstance(f, str) or not f.strip() or len(f.strip()) > FOLDER_CHARS):
-            raise ValueError(f"folder must be a name of 1 to {FOLDER_CHARS} characters, or null for none")
+        if f is not None and (not _name_ok(f)):
+            raise ValueError(f"folder must be a name of 1 to {FOLDER_CHARS} characters without a slash, or null for none")
         out["folder"] = f.strip() if isinstance(f, str) else None
     if len(json.dumps(out)) > MAX_BYTES:
         raise ValueError("this conversation is too large to keep (8 MB)")
@@ -193,8 +202,8 @@ class Conversations:
         return [{"name": n, "count": counts.get(n, 0)} for n in names]
 
     def make_folder(self, name: object) -> dict:
-        if not isinstance(name, str) or not name.strip() or len(name.strip()) > FOLDER_CHARS:
-            raise ValueError(f"a folder's name is 1 to {FOLDER_CHARS} characters")
+        if not _name_ok(name):
+            raise ValueError(f"a folder's name is 1 to {FOLDER_CHARS} characters, without a slash")
         with self._lock, self._db() as db:
             db.execute("insert or ignore into folders (name, created) values (?, ?)", (name.strip(), time.time()))
         return {"name": name.strip()}
@@ -217,8 +226,8 @@ class Conversations:
             return self._refile(db, name, None)
 
     def rename_folder(self, old: str, new: object) -> dict:
-        if not isinstance(new, str) or not new.strip() or len(new.strip()) > FOLDER_CHARS:
-            raise ValueError(f"a folder's name is 1 to {FOLDER_CHARS} characters")
+        if not _name_ok(new):
+            raise ValueError(f"a folder's name is 1 to {FOLDER_CHARS} characters, without a slash")
         new = new.strip()
         with self._lock, self._db() as db:
             db.execute("delete from folders where name=?", (old,))
@@ -262,12 +271,14 @@ class Conversations:
             return db.execute("delete from conversations where id=?", (cid,)).rowcount > 0
 
     def list(self, query: str = "", limit: int = 200) -> list[dict]:
-        """Most recent first; a query matches the title or any message's text, case aside."""
+        """Pinned first, then most recent; a query matches the title or any message's text, case aside, over every
+        conversation kept (not only the latest), and a pinned one is never left out by the limit."""
 
-        with self._db() as db:
-            rows = db.execute("select doc from conversations order by updated desc limit ?", (limit * 4,)).fetchall()
         out = []
         q = query.strip().lower()
+        with contextlib.closing(self._db()) as db:
+            rows = db.execute("select doc from conversations order by "
+                              "coalesce(json_extract(doc, '$.pinned'), 0) desc, updated desc").fetchall()
         for (d,) in rows:
             doc = json.loads(d)
             title = doc.get("title") or _title_of(doc.get("messages", []))

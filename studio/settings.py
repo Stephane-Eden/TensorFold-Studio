@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import platform
@@ -109,8 +110,8 @@ def validate(patch: dict) -> dict:
                 flag = a.partition("=")[0]
                 if flag in native.SECRET:
                     raise ValueError(f"{flag} would put a secret on the command line: {native.SECRET[flag]}")
-                if flag in native.MANAGED:
-                    raise ValueError(f"{flag} is set by the Studio: {native.MANAGED[flag]}")
+                if native.managed(flag):
+                    raise ValueError(f"{flag} is set by the Studio: {native.managed(flag)}")
             out[key] = value
     return out
 
@@ -146,6 +147,21 @@ def load() -> Settings:
     except (OSError, ValueError):
         return Settings()
     return Settings(**{k: v for k, v in data.items() if k in Settings.__dataclass_fields__})
+
+
+def secure_config_dir() -> Path:
+    """The settings folder, made private on every start (not only when the service is installed): readable by this
+    user only, and the files that hold conversations, runs and the engine's log narrowed to 0600 as well."""
+
+    p = config_dir()
+    p.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if os.name == "posix":
+        os.chmod(p, 0o700)
+        for f in [*p.glob("*.sqlite*"), *p.glob("*.log*"), *p.glob("*.json")]:
+            with contextlib.suppress(OSError):
+                if f.is_file():
+                    os.chmod(f, 0o600)
+    return p
 
 
 def write_private(p: Path, text: str) -> None:

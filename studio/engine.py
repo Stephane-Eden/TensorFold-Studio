@@ -448,6 +448,8 @@ class Engine:
             # appended to, so the file can start over under the engine (see _pump): with "wb" the engine would go on
             # writing at its old offset into a sparse file
             log.write_bytes(b"")
+            with contextlib.suppress(OSError):
+                os.chmod(log, 0o600)                    # what the engine logs (learned facts too) is this user's alone
             with open(log, "ab") as out:
                 popen = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
                                          start_new_session=(os.name != "nt"), creationflags=flags)
@@ -587,14 +589,13 @@ class Engine:
             self._subscribers.remove(q)
 
     # -- health ------------------------------------------------------------------------
-    def _headers(self) -> dict[str, str]:
-        key = self.key_in_use()
-        return {"Authorization": f"Bearer {key}"} if key else {}
-
     def health(self) -> Health:
-        base = self.settings.engine_url.rstrip("/")
+        # the target read once: a change of address or key while this poll runs must not send the new key to the old
+        # engine, nor let the old engine's answer stand for the new one
+        base, key = self.settings.engine_url.rstrip("/"), self.key_in_use()
+        hdrs = {"Authorization": f"Bearer {key}"} if key else {}
         try:
-            r = self._client.get(base + "/health", headers=self._headers())
+            r = self._client.get(base + "/health", headers=hdrs)
             r.raise_for_status()
             h = parse_health(r.json())
         except Exception as exc:  # noqa: BLE001
@@ -602,24 +603,24 @@ class Engine:
         bare = h.ok and not h.model and h.raw is not None and "live" not in h.raw and h.counters is None
         if h.ok and not h.model:
             with contextlib.suppress(Exception):      # /v1/models needs the key when one is set; a miss keeps None
-                r = self._client.get(base + "/v1/models", headers=self._headers())
+                r = self._client.get(base + "/v1/models", headers=hdrs)
                 if r.status_code == 200:
                     ids = [m.get("id") for m in r.json().get("data", []) if m.get("id")]
                     h.model_ids = ids
                     h.model = ids[0] if ids else None
                 elif r.status_code == 401:
                     h.status = "unauthorized"           # the server answers; the Studio's key does not open it
-                    h.error = "the engine refuses the API key the Studio holds" if self.key_in_use() else \
+                    h.error = "the engine refuses the API key the Studio holds" if key else \
                         "the engine requires an API key the Studio does not have"
-        if bare and h.status != "unauthorized" and self.key_in_use():
+        if bare and h.status != "unauthorized" and key:
             with contextlib.suppress(Exception):      # a bare /health behind a key: the figures live on /metrics
-                r = self._client.get(base + "/metrics", headers=self._headers())
+                r = self._client.get(base + "/metrics", headers=hdrs)
                 if r.status_code == 200:
                     self._read_metrics(h, parse_metrics(r.text))
         if h.ok and not bare and h.status != "unauthorized" and h.source != "metrics":
             # what /health leaves out: the Mac's memory and drafts, and on both engines the prompt cache (1.0.5)
             with contextlib.suppress(Exception):
-                r = self._client.get(base + "/metrics", headers=self._headers())
+                r = self._client.get(base + "/metrics", headers=hdrs)
                 if r.status_code == 200:
                     m = parse_metrics(r.text)
                     if "process_footprint_bytes" in m and not h.memory:
@@ -634,9 +635,11 @@ class Engine:
             self._window_asked = True                 # the served window, once per target, when nothing else said it
             with contextlib.suppress(Exception):
                 r = self._client.post(base + "/tokenize", json={"model": h.model or "", "prompt": ""},
-                                      headers=self._headers())
+                                      headers=hdrs)
                 if r.status_code == 200 and isinstance(r.json().get("max_model_len"), int):
                     h.context_length = int(r.json()["max_model_len"])
+        if (self.settings.engine_url.rstrip("/"), self.key_in_use()) != (base, key):
+            return h                                  # the target changed meanwhile: this answer is the old engine's
         if h.ok and h.counters:
             with self._rates_lock:                   # the baseline is read and moved by one caller at a time
                 h.decode_tps, h.prefill_tps = rates_from_counters(self._counters, h.counters)

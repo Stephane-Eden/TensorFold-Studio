@@ -29,7 +29,8 @@ export function ParallelPanel({ model, engine, sampling }: { model: string; engi
   const [maxTokens, setMaxTokens] = useState(256)
   const [slots, setSlots] = useState<Slot[]>([])
   const [running, setRunning] = useState(false)
-  const [results, setResults] = useState<Result[]>([])     // one per count tried, the latest kept
+  const [results, setResults] = useState<Result[]>([])
+  const [uncounted, setUncounted] = useState(false)          // the engine gave no token counts: no speed to keep     // one per count tried, the latest kept
   const live = useRef<Slot[]>([])
   const ctl = useRef<AbortController | null>(null)
   const t0 = useRef(0)
@@ -70,8 +71,8 @@ export function ParallelPanel({ model, engine, sampling }: { model: string; engi
         }
       }
       s.tEnd = performance.now()
-      if (!s.tokens) s.tokens = s.counted
-      s.tps = runtime?.tokens_per_second ?? (s.tFirst ? s.tokens / Math.max(0.001, (s.tEnd - s.tFirst) / 1000) : null)
+      // without the engine's count there are stream events, not tokens (an event can carry several): no token figure
+      s.tps = runtime?.tokens_per_second ?? (s.tFirst && s.tokens ? s.tokens / Math.max(0.001, (s.tEnd - s.tFirst) / 1000) : null)
       // from sending, as the page sees it: a request waiting for a free slot waits here, not in the engine's figure
       s.ttft = s.tFirst ? (s.tFirst - t0.current) / 1000 : null
       if (s.outcome === 'running') s.outcome = 'done'
@@ -91,13 +92,14 @@ export function ParallelPanel({ model, engine, sampling }: { model: string; engi
     await Promise.all(live.current.map((_, i) => one(i, c.signal)))
     const done = live.current.filter((s) => s.outcome === 'done' || s.outcome === 'length')
     const end = Math.max(...live.current.map((s) => s.tEnd))
-    const tokens = done.reduce((a, s) => a + (s.tokens || s.counted), 0)
-    if (done.length && !c.signal.aborted) {
+    const tokens = done.reduce((a, s) => a + (s.tokens || 0), 0)
+    // a reply the engine did not count leaves the total unknown: stream events are not tokens
+    if (done.length && !c.signal.aborted && done.every((s) => s.tokens > 0)) {
       const wall = (end - t0.current) / 1000
       const res: Result = { n, tokens, wall, total: tokens / Math.max(0.001, wall), perStream: median(done.map((s) => s.tps ?? 0)),
         ttft: median(done.map((s) => s.ttft ?? 0)), failed: n - done.length }
       setResults((rs) => [...rs.filter((r) => r.n !== n), res].sort((a, b) => a.n - b.n))
-    }
+    } else if (done.length && !c.signal.aborted) setUncounted(true)
     setSlots(live.current.map((x) => ({ ...x }))); setRunning(false); ctl.current = null
   }
 
@@ -132,6 +134,7 @@ export function ParallelPanel({ model, engine, sampling }: { model: string; engi
           </div>)}
         </div>
       </>}
+      {uncounted && <p className="small muted">The engine gave no token counts for these replies, so no speed is kept: a stream event can carry several tokens.</p>}
       {results.length > 0 && <div className="pscroll"><table className="tbl small">
         <thead><tr><th>At once</th><th>Total speed</th><th>Each reply</th><th>First token</th><th>Tokens</th><th>Time</th>{base && <th>Against 1</th>}</tr></thead>
         <tbody>{results.map((r) => <tr key={r.n}>

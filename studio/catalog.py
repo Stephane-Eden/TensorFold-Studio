@@ -124,9 +124,11 @@ def capacity_of(machine: Machine) -> fit.Capacity | None:
     if machine.backend == "mlx":
         return fit.mlx_capacity(machine.ram_bytes, machine.gpu_ceiling_bytes)
     if machine.backend == "cuda":
-        if machine.unified_memory or not machine.gpus or not machine.gpus[0].memory_bytes:
+        if machine.unified_memory:                 # a GB10 and its relatives: the GPU draws on the RAM
             return fit.cuda_capacity(machine.ram_bytes, unified=True)
-        return fit.cuda_capacity(int(machine.gpus[0].memory_bytes), unified=False)
+        if machine.gpus and machine.gpus[0].memory_bytes:
+            return fit.cuda_capacity(int(machine.gpus[0].memory_bytes), unified=False)
+        return None                                # a card whose memory is not known: no verdict rather than the RAM's
     return None
 
 

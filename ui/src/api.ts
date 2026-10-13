@@ -151,8 +151,8 @@ export type ReplayTarget = { kind: 'served'; drafts: boolean } | { kind: 'addres
 export type ReplayProgress = { id: string; of: string; done: number; total: number; status: string; error?: string
   turn?: number; question?: string; live_text?: string; live_reasoning?: string }   // the reply being written, to watch it
 type ReplySide = { text: string; tps: number | null; ttft: number | null; tokens: number | null; sha: string | null; outcome?: string }
-export type ReplyComparison = { a: { id: string; title: string }; b: { id: string; title: string }; same_text: number; same_tokens: number
-  turns: { question: string; a: ReplySide; b: ReplySide; same_text: boolean; same_tokens: boolean; change: number | null }[]
+export type ReplyComparison = { a: { id: string; title: string }; b: { id: string; title: string }; same_text: number; same_tokens: number; checked: number
+  turns: { question: string; a: ReplySide; b: ReplySide; same_text: boolean; same_tokens: boolean | null; change: number | null }[]   // null: not checkable
   speed: { median_change: number | null; b_faster: number; b_slower: number; p: number; within_noise: boolean; too_few?: boolean } }
 // Usage: what the engine served, by day and hour and model, kept across restarts
 export type UsageSummary = { days: { day: string; models: Record<string, { prompt: number; completion: number }>; peak_decode: number; peak_prefill: number; requests: number }[]
@@ -177,7 +177,7 @@ export type CleanResult = { kind: string; matched: number; removed: number; dry_
 // the checks of the first-run list and of the diagnostic, each with how to fix it
 export type SetupCheck = { id: string; label: string; status: 'pass' | 'warn' | 'fail' | 'skip'; detail: string; fix: string }
 
-export type CheckResult = { id: string; label: string; ok: boolean; detail: string; seconds: number }
+export type CheckResult = { id: string; label: string; ok: boolean; skipped?: boolean; detail: string; seconds: number }   // skipped: could not be checked
 export type ConnectInfo = { engine_url: string; lan_url: string | null; share: boolean; api_key: string | null; relay_key?: string | null; key_pending_restart: boolean; studio_token_set: boolean; snippets: Snippet[]; kinds?: Record<string, string>; window?: number | null; where?: 'here' | 'away' }
 
 // A Studio started with --token wants the token on every API and relay call. It is read once from the page's
@@ -395,7 +395,7 @@ export type BenchBlock = {
 }
 export type SweepPoint = { size: number; prompt_tokens: number | null; cached: number | null; prefill_s: number | null; ttft: number | null; prefill_tps: number | null; error: string | null; estimated?: boolean; weak?: boolean }
 export type LoadLevel = { concurrency: number; requests: number; errors: number; total_tps: number | null; per_request_tps: number | null; ttft_p50: number | null; ttft_p95: number | null }
-export type QualityCount = { items: number; passed: number }
+export type QualityCount = { items: number; passed: number; unscored?: number }   // unscored: a request that failed, not graded
 export type BenchSummary = { overall: BenchBlock; suites: Record<string, BenchBlock>; sweep?: SweepPoint[]; load?: LoadLevel[]; quality?: { overall: QualityCount; categories: Record<string, QualityCount> } }
 export type BenchResult = {
   suite: string; prompt: string; draft: boolean; error: string | null; text: string

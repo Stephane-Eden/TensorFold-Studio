@@ -180,6 +180,7 @@ function QualityReport({ run, names }: { run: BenchRun; names: Record<string, st
   return <>
     <dl className="figures big">
       <div><dt>Right</dt><dd>{q.overall.passed} of {q.overall.items}</dd></div>
+      {!!q.overall.unscored && <div><dt>Not graded</dt><dd className="bad">{q.overall.unscored} <small>(request failed)</small></dd></div>}
       {Object.entries(q.categories).map(([k, c]) => <div key={k}><dt>{names[k] ?? k}</dt><dd>{share(c)}</dd></div>)}
     </dl>
     <p className="small muted">Scored strictly: the last value counts, an answer offering two fails, a reasoning block left open leaves no answer. Two quality runs compare item by item (tick them in the list below).</p>

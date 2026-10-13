@@ -17,7 +17,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -103,6 +103,15 @@ def _site(netloc: str, scheme: str) -> tuple[str, int] | None:
     return (parts.hostname or "", port or (443 if scheme == "https" else 80))
 
 
+def attachment(name: str, fallback: str, ext: str, prefix: str = "") -> dict[str, str]:
+    """A download's header: an ASCII file name every browser takes, and the name as written (any script) beside it."""
+
+    slug = "".join(c if c.isascii() and c.isalnum() else "-" for c in name.lower()).strip("-")[:40] or fallback
+    slug = "-".join(p for p in slug.split("-") if p) or fallback
+    full = quote(f"{prefix}{name.strip()[:80] or fallback}{ext}", safe="")
+    return {"Content-Disposition": f"attachment; filename=\"{prefix}{slug}{ext}\"; filename*=UTF-8''{full}"}
+
+
 def same_secret(given: str, known: str) -> bool:
     """A constant-time comparison that answers False, rather than raising, on a credential with non-ASCII text
     (`hmac.compare_digest` refuses those on str)."""
@@ -149,6 +158,7 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
                catalog: Catalog | None = None, token: str | None = None, bench_store: bench.Store | None = None,
                bind_host: str = "127.0.0.1", allowed_hosts: list[str] | None = None) -> FastAPI:
     s = settings or settings_mod.load()
+    settings_mod.secure_config_dir()                 # conversations and the engine's log are this user's alone
     eng = engine or Engine(s, state_dir=settings_mod.config_dir())
     eng.adopt()                                  # an engine a previous Studio started may still run
     cat = catalog or Catalog()
@@ -625,9 +635,8 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         suite = runner.custom.get(suite_id)
         if suite is None:
             raise HTTPException(404, "unknown suite")
-        slug = "".join(c if c.isalnum() else "-" for c in suite["name"].lower()).strip("-")[:40] or "suite"
-        return JSONResponse(custom_suites.export(suite), headers={
-            "Content-Disposition": f'attachment; filename="suite-{slug}.json"'})
+        return JSONResponse(custom_suites.export(suite), headers=attachment(
+            suite["name"], "suite", ".json", prefix="suite-"))
 
     @app.get("/api/bench/runs")
     def bench_runs(limit: int = 50):
@@ -1064,14 +1073,14 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
-    @app.put("/api/conversation-folders/{name}")
+    @app.put("/api/conversation-folders/{name:path}")
     def chat_folder_rename(name: str, body: dict[str, Any]):
         try:
             return chats.rename_folder(name, body.get("name"))
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
-    @app.delete("/api/conversation-folders/{name}")
+    @app.delete("/api/conversation-folders/{name:path}")
     def chat_folder_remove(name: str):
         return {"removed": name, "moved_out": chats.remove_folder(name)}
 
@@ -1089,7 +1098,7 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
-    @app.put("/api/chat-presets/{name}")
+    @app.put("/api/chat-presets/{name:path}")
     def chat_preset_rename(name: str, body: dict[str, Any]):
         try:
             return chats.rename_preset(name, body.get("name"))
@@ -1100,7 +1109,7 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
-    @app.delete("/api/chat-presets/{name}")
+    @app.delete("/api/chat-presets/{name:path}")
     def chat_preset_remove(name: str):
         if not chats.remove_preset(name):
             raise HTTPException(404, "unknown preset")
@@ -1137,12 +1146,11 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         doc = chats.get(cid)
         if doc is None:
             raise HTTPException(404, "unknown conversation")
-        slug = "".join(c if c.isalnum() else "-" for c in doc["title"].lower()).strip("-")[:40] or "conversation"
         if format == "json":
-            return JSONResponse({"kind": "tensorfold-studio-conversation", **doc}, headers={
-                "Content-Disposition": f'attachment; filename="{slug}.json"'})
-        return Response(conversations.markdown(doc), media_type="text/markdown", headers={
-            "Content-Disposition": f'attachment; filename="{slug}.md"'})
+            return JSONResponse({"kind": "tensorfold-studio-conversation", **doc},
+                                headers=attachment(doc["title"], "conversation", ".json"))
+        return Response(conversations.markdown(doc), media_type="text/markdown",
+                        headers=attachment(doc["title"], "conversation", ".md"))
 
     @app.get("/api/connect")
     def connect(where: str = "here", relay: str = ""):

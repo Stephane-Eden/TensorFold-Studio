@@ -95,7 +95,9 @@ export async function drawCard(run: BenchRun, names: Record<string, string> = {}
 
   ctx.fillStyle = C.line; ctx.fillRect(L, H - 96, W - 2 * L, 1)
   const sv = run.suites_version
-  const proto = `Temperature 0, warm-up, thinking off${sv ? `, suites v${sv.version} ${sv.digest}` : ''}${run.hardware?.throttle?.throttled === false ? ', no slowdown' : run.hardware?.throttle?.throttled ? ', slowed down during the run' : ''}`
+  // thinking as the run recorded it: off only when one of the ways to turn it off was seen to work
+  const think = run.thinking ? (run.thinking.off ? 'thinking off' : 'thinking on') : null
+  const proto = `Temperature 0, warm-up${think ? `, ${think}` : ''}${sv ? `, suites v${sv.version} ${sv.digest}` : ''}${run.hardware?.throttle?.throttled === false ? ', no slowdown' : run.hardware?.throttle?.throttled ? ', slowed down during the run' : ''}`
   fit(ctx, proto, W - 2 * L - 220, 17, 500)
   ctx.fillStyle = C.ink3; ctx.fillText(proto, L, H - 56)
   ctx.font = `500 17px ${SANS}`; ctx.textAlign = 'right'

@@ -117,6 +117,9 @@ def plan(*, port: int = 8090, host: str = "127.0.0.1", token_file: Path | None =
             "# five failed starts in two minutes stop the unit instead of a restart every five seconds for ever",
             "StartLimitIntervalSec=120", "StartLimitBurst=5", "",
             "[Service]", f"WorkingDirectory={Path.home()}", f"Environment=PATH={_path_env()}",
+            # a settings folder moved by XDG_CONFIG_HOME: the service reads the same settings, token and stores
+            *([f"Environment={_quote('XDG_CONFIG_HOME=' + os.environ['XDG_CONFIG_HOME'])}"]
+              if os.environ.get("XDG_CONFIG_HOME") else []),
             f"EnvironmentFile=-{env_file}", f"ExecStart={quoted}",
             f"StandardOutput=append:{conf / 'studio.log'}", "StandardError=inherit",
             "# the engine the Studio starts outlives a restart or a crash of the Studio",

@@ -115,8 +115,14 @@ def pair(reference: list[Step], theirs: list[Step]) -> dict:
     """Two replies to one prompt, compared up to and including the first position where their tokens differ."""
 
     kls, agree, equal, rows = [], 0, 0, []
-    differs_at = None
+    differs_at, unscored = None, 0
     for k, (a, b) in enumerate(zip(reference, theirs, strict=False)):
+        if not a.top or not b.top:                # no probability at this position on one side: nothing to compare
+            unscored += 1
+            if a.token != b.token:
+                differs_at = k
+                break
+            continue
         d = divergence(a.top, b.top)
         kls.append(d)
         same = max(a.top, key=a.top.get, default=a.token) == max(b.top, key=b.top.get, default=b.token)
@@ -131,7 +137,7 @@ def pair(reference: list[Step], theirs: list[Step]) -> dict:
     rows.sort(key=lambda w: -w["kl"])
     widths = [len(a.top) for a in reference[:len(kls)]], [len(b.top) for b in theirs[:len(kls)]]
     return {"positions": len(kls), "tokens": len(reference), "kl": kls, "agree": agree, "equal": equal,
-            "differs_at": differs_at, "identical": identical, "worst": rows[:5], "requests": 2,
+            "differs_at": differs_at, "identical": identical, "worst": rows[:5], "requests": 2, "unscored": unscored,
             "width": [min(w) if w else 0 for w in widths]}         # the fewest alternatives either side gave
 
 
@@ -146,8 +152,9 @@ def compare(client: httpx.Client, ref: Target, cand: Target, messages: list[dict
 
 def summary(per_prompt: list[dict]) -> dict:
     kls = [k for p in per_prompt for k in p["kl"]]
+    unscored = sum(p.get("unscored", 0) for p in per_prompt)
     if not kls:
-        return {"positions": 0}
+        return {"positions": 0, "unscored": unscored}
     xs = sorted(kls)
 
     def q(f: float) -> float:
@@ -164,7 +171,7 @@ def summary(per_prompt: list[dict]) -> dict:
             "identical": sum(1 for p in per_prompt if p["identical"]) / len(per_prompt),
             "differs_at_median": statistics.median(parted) if parted else None,
             "tokens": sum(p["tokens"] for p in per_prompt),
-            "requests": sum(p["requests"] for p in per_prompt), "worst": worst, "top": TOP,
+            "requests": sum(p["requests"] for p in per_prompt), "worst": worst, "top": TOP, "unscored": unscored,
             # the narrowest distribution either side gave: an engine capping top_logprobs makes "the same 20"
             # mean less, and is said so
             "width": min((w for p in per_prompt for w in p.get("width", [TOP])), default=TOP)}

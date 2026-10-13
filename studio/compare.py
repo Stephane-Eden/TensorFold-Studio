@@ -58,6 +58,12 @@ def check(a: dict, b: dict) -> list[str]:
         raise Refused("a KL run is a comparison already: open each one")
     if (a.get("mode") == "tools") != (b.get("mode") == "tools"):
         raise Refused("a tool-call run compares only with another tool-call run")
+    if "load" in (a.get("mode"), b.get("mode")):
+        # a load sweep's replies are known by their place in a wave: they pair only when both sent the same prompts
+        if a.get("mode") != b.get("mode"):
+            raise Refused("a load sweep compares only with another load sweep")
+        if sorted(a.get("suites") or []) != sorted(b.get("suites") or []):
+            raise Refused("the two load sweeps did not send the same suites: their replies are not the same prompts")
     da, db = _digest(a), _digest(b)
     if da and db and a.get("mode") in ("tools", "quality") and da.get("digest") != db.get("digest"):
         raise Refused(f"the two runs did not use the same {'tool-eval-bench version and scenarios' if a.get('mode') == 'tools' else 'quality items'} "
@@ -105,7 +111,8 @@ def _pairs(a: dict, b: dict) -> list[dict]:
 
         def passed(side: dict) -> bool | None:
             if "passed" in (side.get("on") or {}):          # a quality run: the item's own score
-                return bool(side["on"]["passed"])
+                p = side["on"]["passed"]
+                return None if p is None else bool(p)          # a request that failed was not graded
             off = side.get("off")
             return None if off is None or off.get("same") is None else bool(off["same"])
 

@@ -176,23 +176,24 @@ export function ReplyCompare({ a, b, onClose, speedup, names = ['A', 'B'] }: { a
     <div className="replycompare" ref={top}>
       <div className="compare-bar"><b>Two conversations, reply by reply</b><button className="btn sm" onClick={onClose}>Back to the conversation</button></div>
       <p className="small muted" style={{ margin: '4px 0 8px' }}>{speedup ? <>The same questions, written twice without randomness: on the left with speculative decoding (the speed-up: the AI drafts a few tokens ahead and keeps each only if it is the one it would have written), on the right without it, one token at a time.</> : <>The same questions, answered on the left by <b>{na}</b> and on the right by <b>{nb}</b>: it shows whether the answers are the same and which was faster.</>}</p>
-      {speedup && c.turns.length > 0 && <p className={`verdict-line ${c.same_tokens === c.turns.length ? 'good' : 'bad'}`}>{c.same_tokens === c.turns.length
-        ? `The speed-up changed nothing: the same answer${c.turns.length === 1 ? '' : 's'}, token for token.`
-        : `The speed-up changed ${c.turns.length - c.same_tokens} of ${c.turns.length} answers: it is not exact here.`}{sp.median_change != null && sp.median_change < -0.005 ? ` With it, the answers came ${pct(gain(sp.median_change)).replace('+', '')} faster (${(1 / (1 + sp.median_change)).toFixed(1)}×).` : sp.median_change != null && sp.median_change > 0.005 ? ' It was not faster here.' : ''}</p>}
-      {!speedup && c.turns.length > 0 && <p className={`verdict-line ${c.same_tokens === c.turns.length ? 'good' : 'bad'}`}>{c.same_tokens === c.turns.length
-        ? `Same answers, token for token, in ${c.turns.length === 1 ? 'the reply' : `all ${c.turns.length} replies`}.`
-        : `${c.turns.length - c.same_tokens} of ${c.turns.length} ${c.turns.length === 1 ? 'reply differs' : 'replies differ'}.`}{sp.median_change != null && Math.abs(sp.median_change) >= 0.005 ? ` On the right, ${nb} was ${speedWord(sp.median_change)} at the median.` : ''}</p>}
+      {c.turns.length > 0 && c.checked === 0 && <p className="verdict-line">Whether the tokens are the same cannot be said here: {speedup ? 'the engine did not confirm the speed-up was off on the right, or gave no token digests' : 'the engine gave no token digests, or a reply failed'}. The texts are below.</p>}
+      {speedup && c.checked > 0 && <p className={`verdict-line ${c.same_tokens === c.checked ? 'good' : 'bad'}`}>{c.same_tokens === c.checked
+        ? `The speed-up changed nothing: the same answer${c.checked === 1 ? '' : 's'}, token for token${c.checked < c.turns.length ? ` (${c.checked} of ${c.turns.length} could be checked)` : ''}.`
+        : `The speed-up changed ${c.checked - c.same_tokens} of ${c.checked} answers checked: it is not exact here.`}{sp.median_change != null && sp.median_change < -0.005 ? ` With it, the answers came ${pct(gain(sp.median_change)).replace('+', '')} faster (${(1 / (1 + sp.median_change)).toFixed(1)}×).` : sp.median_change != null && sp.median_change > 0.005 ? ' It was not faster here.' : ''}</p>}
+      {!speedup && c.checked > 0 && <p className={`verdict-line ${c.same_tokens === c.checked ? 'good' : 'bad'}`}>{c.same_tokens === c.checked
+        ? `Same answers, token for token, in ${c.checked === 1 ? 'the reply checked' : `all ${c.checked} replies checked`}${c.checked < c.turns.length ? ` (of ${c.turns.length})` : ''}.`
+        : `${c.checked - c.same_tokens} of ${c.checked} ${c.checked === 1 ? 'reply checked differs' : 'replies checked differ'}.`}{sp.median_change != null && Math.abs(sp.median_change) >= 0.005 ? ` On the right, ${nb} was ${speedWord(sp.median_change)} at the median.` : ''}</p>}
       <ul className="findings">
         {sp.median_change != null && (speedup
           ? <li><b>Speed:</b> {Math.abs(sp.median_change) < 0.005 ? 'as fast with speculative decoding as without' : `${pct(gain(sp.median_change))} with speculative decoding, at the median`}, {sp.too_few ? 'too few replies to call it certain' : sp.within_noise ? 'within noise' : 'a real difference'} (faster on {sp.b_slower} of {sp.b_faster + sp.b_slower} replies).</li>
           : <li><b>Speed:</b> {nb} {Math.abs(sp.median_change) < 0.005 ? `was as fast as ${na}` : `was ${speedWord(sp.median_change)} than ${na} at the median`}, {sp.within_noise ? 'within noise' : 'a real difference'} (faster on the right in {sp.b_faster} of {sp.b_faster + sp.b_slower} replies).</li>)}
-        <li><b>Replies:</b> {c.same_tokens} of {c.turns.length} with the same tokens, {c.same_text} word for word the same.</li>
+        <li><b>Replies:</b> {c.same_tokens} of {c.checked} checked with the same tokens{c.checked < c.turns.length ? ` (${c.turns.length - c.checked} could not be checked)` : ''}, {c.same_text} of {c.turns.length} word for word the same.</li>
       </ul>
       {c.turns.map((t, i) => (
         <details key={i} className="turn" open={!t.same_text}>
           <summary><b>{t.question.slice(0, 90)}</b> <span className="muted small">{speedup
             ? <>{tps(t.a.tps)} tok/s with, {tps(t.b.tps)} without{t.change != null ? ` (${pct(gain(t.change))} with speculative decoding)` : ''}</>
-            : <>{tps(t.a.tps)} → {tps(t.b.tps)} tok/s{t.change != null ? ` (${pct(t.change)})` : ''}</>} · {t.same_tokens ? 'same tokens' : t.same_text ? 'same text' : 'different replies'}</span></summary>
+            : <>{tps(t.a.tps)} → {tps(t.b.tps)} tok/s{t.change != null ? ` (${pct(t.change)})` : ''}</>} · {t.same_tokens ? 'same tokens' : t.same_text ? (t.same_tokens === null ? 'same text, tokens not checked' : 'same text') : 'different replies'}</span></summary>
           <Sides a={t.a.text} b={t.b.text} labels={speedup ? ['With speculative decoding (the speed-up)', 'Without it (one token at a time)'] : [na, nb]} />
         </details>
       ))}

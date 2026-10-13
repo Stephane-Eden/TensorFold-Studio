@@ -121,8 +121,14 @@ def findings(run: dict) -> list[str]:
     if th and th.get("off") is False:
         out.append("Thinking stayed on whichever way it was turned off, so the speeds include reasoning tokens.")
     k = run.get("kl")
+    if run.get("mode") == "kl" and k and not k.get("positions") and k.get("unscored"):
+        out.append(f"No position could be compared: the engine gave no log-probabilities at the {k['unscored']} "
+                   "positions it wrote, so this run says nothing of the distributions.")
     if run.get("mode") == "kl" and k and k.get("positions"):
         out.append(kl_line(run))
+        if k.get("unscored"):
+            out.append(f"{k['unscored']} positions came without log-probabilities on one side and were left out of "
+                       "the figures.")
         width = k.get("width", k.get("top", 20))
         if k.get("same_distribution") == 1:
             out.append(f"Every compared position gave the same {width} most likely tokens with the same probabilities, "
@@ -155,11 +161,15 @@ def findings(run: dict) -> list[str]:
     q = (run.get("summary") or {}).get("quality")
     if run.get("mode") == "quality" and q:
         ov = q["overall"]
-        out.append(f"{ov['passed']} of {ov['items']} items right ({ov['passed'] / ov['items'] * 100:.0f}%), scored "
-                   "strictly: the last value counts, an answer that offers two fails.")
+        if ov["items"]:
+            out.append(f"{ov['passed']} of {ov['items']} items right ({ov['passed'] / ov['items'] * 100:.0f}%), scored "
+                       "strictly: the last value counts, an answer that offers two fails.")
+        if ov.get("unscored"):
+            out.append(f"{ov['unscored']} items got no answer (the request failed): not graded, and not in the share "
+                       "right.")
         parts = [f"{names.get(k, k)} {v['passed']}/{v['items']}" for k, v in q["categories"].items()]
         out.append("By category: " + ", ".join(parts) + ".")
-        cut = sum(1 for r in run.get("results") or [] if "passed" in r and not r["passed"]
+        cut = sum(1 for r in run.get("results") or [] if "passed" in r and r["passed"] is False
                   and str(r.get("read", "")).startswith("cut at"))
         if cut:
             out.append(f"{cut} of the items missed were cut at the reply limit before their answer, not answered wrong.")

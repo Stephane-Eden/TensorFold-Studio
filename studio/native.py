@@ -51,6 +51,18 @@ def _stamp(path: str) -> tuple:
 MANAGED = {"--host": "the Studio sets it (Settings, Share on the network)", "--port": "the engine address in Settings",
            "--context": "Longest conversation in Settings", "--thinking": "Thinking in Settings",
            "--no-thinking": "Thinking in Settings", "--dashboard": "the Studio turns it on"}
+# Living Weights: learning is turned on by the Studio for a copy that learns, bound to loopback; never by hand
+LEARNING = ("--slide",)
+
+
+def managed(flag: str) -> str | None:
+    """Why the Studio keeps ``flag`` to itself, or None: Settings' own flags, and every learning flag (--slide…)."""
+
+    if flag in MANAGED:
+        return MANAGED[flag]
+    if flag.startswith(LEARNING):
+        return "Teach turns learning on for a copy, kept on this machine; not an extra flag"
+    return None
 SECRET = {"--api-key": "the engine key goes in Settings and reaches the engine through its environment",
           "--api-key-file": "the engine key goes in Settings and reaches the engine through its environment"}
 # `[--flag VALUE]`, `[--flag {a,b}]`, `[--flag]` and `[--a | --b]` in argparse's usage line
@@ -137,7 +149,7 @@ def serve_flags(binary: str) -> dict[str, dict]:
             usage = ""
         arity = parse_usage(usage)
         _flags[key] = {n: {**arity.get(n, {"value": None, "choices": None}),
-                              "managed": MANAGED.get(n) or SECRET.get(n)} for n in names}
+                              "managed": managed(n) or SECRET.get(n)} for n in names}
     return _flags[key]
 
 
@@ -153,7 +165,7 @@ def safe_extra(args: list[str]) -> tuple[list[str], list[str]]:
             continue
         skip_value = False
         flag, eq, _ = a.partition("=")
-        if flag in MANAGED or flag in SECRET:
+        if managed(flag) or flag in SECRET:
             dropped.append(flag)
             skip_value = not eq
             continue
@@ -182,8 +194,8 @@ def check_extra(args: list[str], flags: dict[str, dict]) -> list[str]:
             raise ValueError(f"{flag} is not a flag this engine offers")
         if flag in SECRET:
             raise ValueError(f"{flag} would put a secret on the command line: {SECRET[flag]}")
-        if flag in MANAGED:
-            raise ValueError(f"{flag} is set by the Studio: {MANAGED[flag]}")
+        if managed(flag):
+            raise ValueError(f"{flag} is set by the Studio: {managed(flag)}")
         spec = flags[flag]
         if eq:
             value = inline

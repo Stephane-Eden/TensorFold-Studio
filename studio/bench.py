@@ -59,6 +59,7 @@ MODES = {"quick": "Quick score: three prompts (English, code, French), about hal
          "tools": "Tool calls: tool-eval-bench's scripted conversations with mock tools, scored pass, partial or fail",
          "kl": "KL divergence: each prompt's top-20 log-probabilities against a reference, position by position, where both "
                "wrote the same text"}
+PARTIAL_BELOW = 0.98                      # readings covering less of a run: its energy figures are lower bounds
 LEVELS = (1, 2, 4, 8, 16, 32)             # requests at once in a load sweep
 LOAD_MIN_REQUESTS = 8                     # each level sends at least this many, in waves of its size
 LOAD_TOKENS = 200                         # reply length in a load sweep
@@ -301,6 +302,13 @@ def _stream(client: httpx.Client, url: str, headers: dict, body: dict, cancel: t
     rep.end_at = time.perf_counter()
 
 
+def drafts_off_confirmed(runtime: dict) -> bool:
+    """Whether the engine's block says drafts were off, and does not say the opposite as well: a token digest alone,
+    or "drafts: true" beside "drafted: 0", is no evidence."""
+
+    return runtime.get("drafts") is not True and (runtime.get("drafts") is False or runtime.get("drafted") == 0)
+
+
 def thought(rep: Reply) -> bool:
     """Whether a reply carried reasoning, as its own field or inline in a think tag."""
 
@@ -314,11 +322,13 @@ def measure(rep: Reply) -> dict:
     tokens = rep.usage.get("completion_tokens")
     ttft_client = (rep.first_at - rep.sent_at) if rep.first_at else None
     decode_client = (rep.end_at - rep.first_at) if rep.first_at else None
-    tps_client = (tokens or rep.events) / decode_client if decode_client and decode_client > 0 else None
+    # a stream event may carry several tokens (drafts kept together): without the engine's count there is no token
+    # figure, only events, kept apart; a speed per token then comes from the engine's block or not at all
+    tps_client = tokens / decode_client if tokens and decode_client and decode_client > 0 else None
     from_engine = rt.get("tokens_per_second") is not None
     return {
-        "tokens": tokens if tokens is not None else rep.events,
-        "tokens_counted_by": "engine" if tokens is not None else "stream events",
+        "tokens": tokens,
+        "tokens_counted_by": "engine" if tokens is not None else None,
         "prompt_tokens": rep.usage.get("prompt_tokens"),
         "cached_tokens": (rep.usage.get("prompt_tokens_details") or {}).get("cached_tokens"),
         "reasoning_tokens": (rep.usage.get("completion_tokens_details") or {}).get("reasoning_tokens"),
@@ -394,20 +404,31 @@ class Sampler:
         self.idle_watts = statistics.median(watts) if watts else None
 
     def measuring(self) -> None:
-        self.measured_from = time.monotonic() - self.t0
+        self.measured_from = round(time.monotonic() - self.t0, 2)   # rounded as the readings' times are
+        if self._thread.is_alive():
+            self.sample()                              # a reading at the start of the measured work, not up to 1 s later
 
     def report(self, output_tokens: int) -> dict | None:
         if self.source is None:
             return None
         start = self.measured_from if self.measured_from is not None else 0.0
-        rows = [row for row in self.series if row[0] >= start]
+        live = self._thread.is_alive()
+        if live and self.measured_from is not None:
+            self.sample()                              # and one at its end: the energy covers the whole measured work
+        rows = sorted((row for row in self.series if row[0] >= start), key=lambda row: row[0])
         pts = [(row[0], row[1]) for row in rows if row[1] is not None]
         # energy over the intervals between two readings close enough to trust; a longer gap is left out, not guessed
         steps = [(t1, w1, t2, w2) for (t1, w1), (t2, w2) in itertools.pairwise(pts) if t2 - t1 <= MAX_GAP_S]
         energy = sum((t2 - t1) * (w1 + w2) / 2 for t1, w1, t2, w2 in steps)
         span = sum(t2 - t1 for t1, _, t2, _ in steps)
-        window = rows[-1][0] - rows[0][0] if len(rows) > 1 else 0.0
-        above = energy - (self.idle_watts or 0.0) * span if self.idle_watts is not None else None
+        # the whole measured period, from the start of the measured work to now (the work just ended): the readings
+        # cover part of it, and the energy of the part they miss is not in the figure
+        end = max(rows[-1][0] if rows else start, time.monotonic() - self.t0 if live else 0.0)
+        window = max(0.0, end - start) if self.measured_from is not None else \
+            (rows[-1][0] - rows[0][0] if len(rows) > 1 else 0.0)
+        coverage = min(1.0, span / window) if window else None
+        # an idle reading above the run's average (taken while a load was settling) gives no energy below zero
+        above = max(0.0, energy - (self.idle_watts or 0.0) * span) if self.idle_watts is not None else None
         flags = [row[5] for row in rows if len(row) > 5 and row[5] is not None]
         heat = rows or self.series                       # the measured part; a run shorter than a sample, the whole
         temps = [x for row in heat for x in row[2:4] if x is not None]
@@ -417,7 +438,7 @@ class Sampler:
         return {**self.source.describe(), "estimate": not self.source.whole_machine,
                 "idle_watts": self.idle_watts, "avg_watts": energy / span if span else None,
                 "peak_watts": max((w for _, w in pts), default=None), "measured_s": span, "window_s": window,
-                "coverage": min(1.0, span / window) if window else None,
+                "coverage": coverage, "partial": coverage is not None and coverage < PARTIAL_BELOW,
                 "throttle": {"reported": bool(flags), "throttled": any(flags) if flags else None,
                              "seconds": sum(self.every for f in flags if f) if flags else None,
                              "reasons": sorted(self.reasons)},
@@ -506,12 +527,14 @@ def summarize(results: list[dict]) -> dict:
                 "errors": sum(1 for r in rows if r.get("error"))}
 
     out = {"overall": block(results), "suites": {k: block(v) for k, v in by_suite.items()}}
-    graded = [r for r in results if "passed" in r]
-    if graded:
+    graded = [r for r in results if r.get("passed") is not None]
+    unscored = sum(1 for r in results if "passed" in r and r["passed"] is None)
+    if graded or unscored:
         by: dict[str, list[dict]] = {}
         for r in graded:
             by.setdefault(r.get("category") or r["suite"], []).append(r)
-        out["quality"] = {"overall": {"items": len(graded), "passed": sum(1 for r in graded if r["passed"])},
+        out["quality"] = {"overall": {"items": len(graded), "passed": sum(1 for r in graded if r["passed"]),
+                                      "unscored": unscored},
                           "categories": {k: {"items": len(v), "passed": sum(1 for r in v if r["passed"])}
                                          for k, v in by.items()}}
     load = [r for r in results if "concurrency" in r]
@@ -940,7 +963,8 @@ class Bench:
                             r = {"suite": suite["id"], "prompt": prompt["id"], "draft": True, "error": None,
                                  "m": {"tokens": p["tokens"], "tps": None, "ttft": None, "ttft_answer": None,
                                        "prefill_s": None, "gap_p50": None, "gap_p95": None, "runtime": {}},
-                                 "kl": {k: p[k] for k in ("positions", "agree", "equal", "differs_at", "identical", "worst")},
+                                 "kl": {k: p[k] for k in ("positions", "agree", "equal", "differs_at", "identical", "worst",
+                                                          "width", "unscored")},
                                  "kl_values": p["kl"]}
                             results.append(r)
                             self.store.add_result(run["id"], len(results) - 1, r)
@@ -980,7 +1004,8 @@ class Bench:
             rep = stream_once(client, url, headers, body, self._cancel)
             if rep.error == "cancelled":
                 raise InterruptedError
-            passed, read = (False, rep.error) if rep.error else quality.score(it["category"], it["item"], rep.text)
+            # a request that failed got no answer to grade: unscored, kept out of the share right, counted apart
+            passed, read = (None, rep.error) if rep.error else quality.score(it["category"], it["item"], rep.text)
             if not passed and rep.finish == "length":       # the reply did not end: said apart from a wrong answer
                 read = f"cut at {it['max_tokens']} tokens ({read})"
             r = {"suite": it["category"], "prompt": it["id"], "draft": True, "m": measure(rep), "error": rep.error,
@@ -1013,9 +1038,10 @@ class Bench:
             for wave in range(math.ceil(LOAD_MIN_REQUESTS / c)):
                 if self._cancel.is_set():
                     raise InterruptedError
-                bodies = []
+                bodies, asked = [], []
                 for _ in range(c):
-                    _, prompt = next(turn)
+                    suite, prompt = next(turn)
+                    asked.append(f"{suite['id']}/{prompt['id']}")
                     bodies.append({"model": run["model"], "messages": prompt["messages"], "max_tokens": LOAD_TOKENS,
                                    "temperature": 0.0, "top_p": 1.0, "stream": True,
                                    "stream_options": {"include_usage": True}, **off,
@@ -1028,7 +1054,8 @@ class Bench:
                 if any(r.error == "cancelled" for r in replies):
                     raise InterruptedError
                 for i, rep in enumerate(replies):
-                    r = {"suite": "load", "prompt": f"{c}x{wave}.{i}", "concurrency": c, "wave": wave, "wave_s": wall,
+                    r = {"suite": "load", "prompt": f"{c}x{wave}.{i}", "asked": asked[i], "concurrency": c, "wave": wave,
+                         "wave_s": wall,
                          "draft": True, "m": measure(rep), "error": rep.error, "text": rep.text[:200]}
                     results.append(r)
                     level.append(r)
@@ -1134,8 +1161,7 @@ class Bench:
                 if not draft and first is not None and not first.error and not rep.error:
                     # a reply counts as "the same without drafts" only when the engine says drafts were off (or
                     # drafted nothing); a reply with no runtime block at all may have ignored `"draft": false`
-                    off_known = rep.runtime.get("drafts") is False or rep.runtime.get("drafted") == 0 or \
-                        (bool(rep.runtime) and "drafts" not in rep.runtime and rep.runtime.get("drafted") is None)
+                    off_known = drafts_off_confirmed(rep.runtime)
                     if rep.runtime.get("drafts") is True:
                         run["notes"].append(f"{prompt['id']}: the engine reported drafts on although draft=false was sent")
                     if off_known:
