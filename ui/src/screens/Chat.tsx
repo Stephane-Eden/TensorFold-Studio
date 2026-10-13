@@ -11,6 +11,7 @@ import { ConversationList, namesOf, sameQuestions } from './ChatList'
 import { PRESETS, PresetEditor, sampling, usePresets, type Preset } from './ChatPresets'
 import { sseEvents } from '../sse'
 import { drawSeed } from '../seed'
+import { charsPerToken, liveRate } from '../liverate'
 import { check, checkJson, DEFAULT_WORKSHOP, isLocal, parseTools, runLocal, toolChoice, WorkshopPanel, type Schema, type Workshop } from './ChatWorkshop'
 
 type Outcome = 'done' | 'stopped' | 'interrupted' | 'error' | 'length'
@@ -57,16 +58,18 @@ function load(): Stored | null {
 }
 
 
-/** The reply being written, as this page sees it: the first token's time once it came, and a live speed from the
- * stream events (each usually one token); the engine's own figures replace both when the reply ends. */
-function LivePills({ live }: { live: { t0: number; tFirst: number; events: number } }) {
+type Live = { t0: number; tFirst: number; chars: number; ratio: number }
+/** The reply being written, as this page sees it: the first token's time once it came, and a live speed from the text
+ * received (`liverate.ts`); the engine's own figures replace both when the reply ends. */
+function LivePills({ live }: { live: Live }) {
   const [now, setNow] = useState(() => performance.now())
   useEffect(() => { const t = setInterval(() => setNow(performance.now()), 250); return () => clearInterval(t) }, [])
   const writing = live.tFirst ? Math.max(0.001, (Math.max(now, live.tFirst) - live.tFirst) / 1000) : 0
+  const speed = live.tFirst ? liveRate(live.chars, writing, live.ratio) : null
   return (
     <span className="speed now" aria-label="Speed of the reply being written">
       <span className="pill ttft" title="Time to first token, measured by this page">first token <b>{live.tFirst ? secs((live.tFirst - live.t0) / 1000) : `${secs((now - live.t0) / 1000)}…`}</b></span>
-      {live.tFirst > 0 && writing > 0.3 && <span className="pill tps" title="Live, from the stream events this page receives (each usually one token); the engine's exact figure replaces it when the reply ends">≈ {rate(live.events / writing)} <b>tok/s</b></span>}
+      {speed != null && <span className="pill tps" title={`Live, estimated from the text received at about ${live.ratio.toFixed(1)} characters a token (the last reply's, as the engine counted it); the engine's exact figure replaces it when the reply ends`}>≈ {rate(speed)} <b>tok/s</b></span>}
     </span>
   )
 }
@@ -110,7 +113,7 @@ function Reply({ text, live, onCopy }: { text: string; live: boolean; onCopy: (t
 }
 
 const STARTERS = [
-  'I will paste an email. Give me the three points that need a decision, then a two-line reply.',
+  "Write a short story, about 300 words, about a lighthouse keeper's last night on the job.",
   'Explain, in plain words, what a mortgage rate cap is and when it matters.',
   'Write a Python script that renames the photos in a folder by the date they were taken.',
 ]
@@ -160,7 +163,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
   const [speedupPair, setSpeedupPair] = useState(false)                // the comparison is a speed-up check
   const [streaming, setStreaming] = useState(false)
   // the reply being written, as this page sees it: when it was sent, its first token, the stream events so far
-  const [live, setLive] = useState<{ t0: number; tFirst: number; events: number } | null>(null)
+  const [live, setLive] = useState<Live | null>(null)
   const [webOff, setWebOff] = useState(false)               // this conversation asks without Cortheon's web research
   const [error, setError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<false | 'failed' | 'conflict'>(false)
@@ -385,9 +388,10 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
     const update = (final = false) => {
       if (!current()) return
       setMsgs((m) => [...m.slice(0, -1), { role: 'assistant', content, reasoning, ...context, ...(final ? { outcome, error: errMsg } : {}) }])
-      setLive({ t0, tFirst, events: counted })
+      setLive({ t0, tFirst, chars: content.length + reasoning.length, ratio })
     }
-    setLive({ t0, tFirst: 0, events: 0 })
+    const ratio = charsPerToken(msgs)
+    setLive({ t0, tFirst: 0, chars: 0, ratio })
     try {
       const r = await fetch('/engine/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify(body), signal: ctl.signal })
       if (!r.ok || !r.body) {
