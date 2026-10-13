@@ -235,7 +235,7 @@ def test_forgetting_one_fact_restores_before_it_and_teaches_the_rest_again(home)
     manifests = [{"id": "v1", "label": "before lesson j1", "at": 90.0}, {"id": "v2", "label": "before lesson j2", "at": 190.0},
                  {"id": "v3", "label": "before lesson j3", "at": 290.0}]
     plan = living.forget_plan("eden", "B is 2.", manifests)
-    assert plan == {"version": "v2", "again": [{"fact": "D is 4.", "question": "What is D?"}]}
+    assert plan == {"version": "v2", "again": [{"fact": "D is 4.", "question": "What is D?"}], "fact": "B is 2."}
     with pytest.raises(ValueError, match="did not teach"):
         living.forget_plan("eden", "Never taught.", manifests)
 

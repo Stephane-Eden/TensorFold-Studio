@@ -1639,6 +1639,7 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
             plan = living.forget_plan(name, fact, living_versions.manifests(name))
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
+        fact = plan["fact"]                                     # the words it was taught in, whichever were given
         from . import native
 
         why = living.teachable_here(native.find_binary())      # checked before anything is taken out

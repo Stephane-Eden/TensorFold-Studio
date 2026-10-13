@@ -145,3 +145,18 @@ def test_a_copys_memory_is_its_base_models(tmp_path, monkeypatch):
     assert r.status_code == 404 and r.json()["detail"] == "unknown model"     # the base's own answer, not "no route"
     assert c.get("/api/catalog/living:nobody/verdicts").status_code == 404
     assert c.get("/api/catalog/nothing-like-a-copy/verdicts").status_code == 404
+
+
+def test_forget_finds_a_fact_given_in_the_engines_words(tmp_path, monkeypatch):
+    monkeypatch.setenv("TENSORFOLD_STUDIO_LIVING", str(tmp_path / "living"))
+    living._write(living.meta_dir("mine") / "lessons.json",
+                  [{"job": "j1", "at": 1.0, "fact": "My dog is Ginger.", "outcome": "kept",
+                    "found": [{"id": 3, "text": "The user's dog is named Ginger.", "outcome": "kept"}]},
+                   {"job": "j2", "at": 2.0, "fact": "I live in Paris.", "outcome": "kept"}])
+    versions = [{"id": "v1", "label": "before lesson j1", "at": 0.5}, {"id": "v2", "label": "before lesson j2", "at": 1.5}]
+    plan = living.forget_plan("mine", "The user's dog is named Ginger.", versions)       # as the graph shows it
+    assert plan["version"] == "v1" and plan["fact"] == "My dog is Ginger."
+    assert plan["again"] == [{"fact": "I live in Paris.", "question": ""}]
+    assert living.forget_plan("mine", "The user lives in Paris", versions)["fact"] == "I live in Paris."   # no `found`
+    with pytest.raises(ValueError, match="did not teach"):
+        living.forget_plan("mine", "My cat is Pixel.", versions)

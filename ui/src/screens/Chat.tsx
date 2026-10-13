@@ -330,6 +330,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
           json: !calls.length && ws.output !== 'text' ? (() => { const j = checkJson(m.content ?? '', schema)
             return body.response_format ? j : { ...j, detail: `${j.detail} (asked in the prompt: this engine does not constrain replies to JSON)` } })() : undefined,
           stats: { tokens: n, tps: rt?.tokens_per_second ?? (n ? n / Math.max(0.001, (performance.now() - t0) / 1000) : null), ttft: rt?.time_to_first_token ?? 0, prompt: d.usage?.prompt_tokens,
+            cached: d.usage?.prompt_tokens_details?.cached_tokens, reasoning: d.usage?.completion_tokens_details?.reasoning_tokens,
             measured: d.usage ? 'engine' : 'counted', timing: rt?.tokens_per_second != null ? 'engine' : 'page', sha: rt?.token_sha, drafts: rt?.drafts, acceptance: rt?.acceptance_rate ?? undefined,
             perRound: rt?.tokens_per_round ?? undefined, prefill: prefillRate(rt, d.usage?.prompt_tokens, d.usage?.prompt_tokens_details?.cached_tokens) },
           ...(d.cortheon ? { cortheon: d.cortheon as Cortheon } : {}) }

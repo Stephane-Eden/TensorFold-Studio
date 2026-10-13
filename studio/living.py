@@ -834,19 +834,26 @@ def forget_plan(name: str, fact: str, manifests: list[dict]) -> dict:
     lessons, to teach again after restoring it. Facts the Studio did not teach have no lesson to go back before."""
 
     record = lessons(name)
-    taught = next((x for x in record if x.get("fact") == fact and x.get("outcome") in KEPT), None)
+    kept = [x for x in record if x.get("outcome") in KEPT]
+    # the words the Studio taught, else the same fact in other words: the engine's rewriting ("The user has a dog…"),
+    # as its graph shows it, or as a lesson recorded it
+    taught = next((x for x in kept if x.get("fact") == fact), None) or next(
+        (x for x in kept if canonical(fact) in {canonical(str(t)) for t in
+                                                [x.get("fact") or "", *(f.get("text") or "" for f in x.get("found") or [])]}),
+        None)
     if taught is None:
         raise ValueError("the Studio did not teach this fact, so there is no version from before it; restore an "
                          "earlier version instead")
     version = next((m for m in manifests if m.get("label") == f"before lesson {taught['job']}"), None)
     if version is None:
         raise ValueError("no version was kept before the lesson that taught this fact")
+    fact = taught["fact"]
     later, seen = [], set()
     for x in record:                                 # everything kept since that version, but the fact itself
         if x.get("outcome") in KEPT and x.get("at", 0) > version["at"] and x["fact"] != fact and x["fact"] not in seen:
             seen.add(x["fact"])
             later.append({"fact": x["fact"], "question": x.get("question") or ""})
-    return {"version": version["id"], "again": later}
+    return {"version": version["id"], "again": later, "fact": fact}
 
 
 def graph_summary(body: dict) -> list[dict]:
