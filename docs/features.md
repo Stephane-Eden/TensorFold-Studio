@@ -25,7 +25,9 @@ machine: 17 GB to download") with the one button for that state, then Chat, Teac
 the last conversations, the teachable copies and what they remember, and the first-run list until the machine is
 ready. The catalog marks one model `recommended` per machine (runs here and fits, the fastest first, one on disk
 before one to download). The sections sit in the order a person uses them: Home, Models, Chat, Teach, Connect,
-Bench, Monitor, Fleet, Settings (keys 1 to 9); the old addresses keep working.
+Bench, Monitor, Fleet, Settings (keys 1 to 9); the old addresses keep working. The sidebar folds to its icons (its
+button at the foot of the menu, or the `[` key, 13 Oct), each name kept as a tooltip and for screen readers, the AI's
+state as its dot alone; the browser remembers it.
 
 **Logos** (12 Oct; 13 Oct: Meta, Mistral AI, Moonshot AI, MiniMax, Hugging Face, Baidu, ByteDance, Xiaomi added, and a
 maker known without a logo file shows its initial): a model shows its family's or its maker's logo wherever it is named (Home, Models, Chat, Fleet,
@@ -49,7 +51,8 @@ logo's source is in `ui/src/assets/models/README.md` and `ui/src/assets/logos/RE
 
 ## Monitor
 - Live writing and prompt-reading speed, connections, KV cache fill, requests set aside, drafts kept, admitted
-  context (`engine.py`). A figure an engine does not report says so; a request still running behind a key shows as
+  context (`engine.py`); the prompt cache and the drafts kept beside memory at the top (13 Oct), the rest under "The
+  engine's own figures". A figure an engine does not report says so; a request still running behind a key shows as
   running, not as 0 tok/s.
 - The prompt cache (TensorFold 1.0.5): its budget and the share of prompt tokens restored from kept states; the
   prompt-reading speed counts only the tokens actually read.
@@ -72,7 +75,14 @@ Yesterday, This week, This month, Earlier), by folder or by model (the choice ke
 conversation has a "⋯" menu: pin to the top, rename, move to a folder (or to a new one), delete, each asked in the
 page. Folders are made, renamed and deleted from the list grouped by folder; deleting one keeps its conversations.
 A pin, a folder or a new title keeps the conversation's time and revision. The open conversation's own actions sit
-above it: Check the speed-up, Replay, Compare with a replay, Export (Markdown to read, JSON for all the data).
+above it: Verify speed-up & exactness (13 Oct: its name says it proves the replies unchanged), Replay, Compare with a
+replay, Export (Markdown to read, JSON for all the data). While a reply is written, the first-token time and a live
+speed (from the stream events, each usually one token) show in the pills, the engine's exact figures replacing them
+at the end, with a third pill for the drafts kept and the tokens per round; the reply bar adds the prompt's reading
+speed (its tokens not restored from the cache over the engine's `prefill_seconds`). With Cortheon on (Settings), the
+Options say "Web research" (off sends `"cortheon": false`), and a reply shows its searches, pages read and sources.
+"Teach this" shows on a model TensorFold learns into as well as on a copy: on the base, Teach keeps the message and
+says to make or serve a copy first.
 Compare with a replay lists only the conversations that ask the same questions (its original and every replay of
 it), each named by what wrote it ("Qwen3.8-27B-MLX-4bit, without the speed-up", "the original, …"), and the
 comparison names its two sides the same way.
@@ -134,9 +144,14 @@ comparison names its two sides the same way.
   in code, 8 long texts whose fact is corrected later; scored strictly (the last value counts, two answers fail, a
   reply cut at its limit said apart); compared item by item with McNemar's test.
 - **Load sweep**: waves of requests at once; total and per-request speed, first token p50 and p95 with the wait.
-- **KL divergence**: top-20 log-probabilities against a reference (drafts off, or another engine at an address),
-  position by position where both wrote the same text, optionally under load (`kl.py`); mean, p99 and largest
-  KL, same top token, identical replies, the largest divergences.
+- **KL divergence**: top-20 log-probabilities against a reference (drafts off, or another engine at an address, or a
+  Fleet machine), position by position where both wrote the same text, optionally under load (`kl.py`); mean, p99 and
+  largest KL, same top token, identical replies, the largest divergences. Or a fixed text (13 Oct): both engines read
+  it once through `prompt_logprobs` on `/v1/completions` (TensorFold 1.0.8 on CUDA, vLLM; refused on Metal and the
+  Python line, said plainly) and every position is compared, however the replies would have parted.
+- **Fleet machines as targets** (13 Oct): Bench's "another engine" and KL's reference offer the Fleet's machines
+  beside an address typed by hand; the Studio reaches the machine's engine through its Studio's relay, with that
+  Studio's token or the engine's key, neither of which reaches the page or the run.
 - **Tool calls**: tool-eval-bench (MIT), run by the Studio on the target engine, 15 or 69 scenarios scored pass,
   partial or fail, compared scenario by scenario like the quality suite (`tooleval.py`); where it is missing, an Install
   button runs `uv tool install tool-eval-bench==2.8.0` for the user (13 Oct; installed on both Sparks that day).
@@ -189,7 +204,10 @@ TensorFold 1.0.7 teaches a served Nemotron facts into its own weights (`serve <f
   served says so, with a button to serve 65,536 tokens when the model can hold it, or the models that can.
 - Settings: memory budget (a slider only where it has a range, the Python line on a Mac; elsewhere the figure TensorFold
   sizes itself, 13 Oct), context, thinking, appearance (only here since 13 Oct, no longer in the sidebar), electricity price, extra `serve` flags checked against the
-  engine's own list (unknown, abbreviated, set by the Studio, or secret: refused).
+  engine's own list (unknown, abbreviated, set by the Studio, or secret: refused). Web research (Cortheon, TensorFold
+  1.0.9, 13 Oct): off by default, shown when the engine offers `--cortheon`, with what leaves the machine (the search
+  queries to DuckDuckGo, page reads from this machine's address, the risk of a page steering the model) and a warning
+  when the engine is shared on the network.
 - Settings, Makers and their logos (13 Oct, `brands.py`, `SettingsBrands.tsx`): the model and hardware makers the
   Studio recognises, each with its logo and the words that recognise it; a person adds a maker (name, words, logo:
   PNG, JPEG, WebP or SVG up to 150 KB, an SVG with a script refused), gives a known one a logo, or undoes that. Kept on
@@ -256,8 +274,9 @@ TensorFold 1.0.7 teaches a served Nemotron facts into its own weights (`serve <f
 
 ## Not yet done
 - Step 1: the NVIDIA kernel journal and amdgpu errors (need root or an AMD machine).
-- Step 3: remote targets; KL against an unquantized reference, and at every position (needs the engine).
-- Step 4: Codex waits on the engine (its `include` field is refused).
+- Step 3: KL at every position on Metal (needs `prompt_logprobs` there); KL against an unquantized reference run
+  for real.
+- Step 4: Codex itself not run yet; its request is answered from TensorFold 1.0.9 (13 Oct), refused before.
 - Step 5: images, once a vision model is served natively.
 - Step 6: power (needs root on the Sparks) and speed-up groups (needs TensorFold's speed-up mode on our machines);
   the fleet view, adding a machine, the usage history and the service are done.
