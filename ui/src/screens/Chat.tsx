@@ -19,13 +19,21 @@ type Outcome = 'done' | 'stopped' | 'interrupted' | 'error' | 'length'
 type Call = { id: string; name: string; arguments: string; check?: string }
 // the settings a reply was written with, recorded on it: a replay or a speed-up check uses these, not today's options
 export type Request = { thinking: 'default' | 'on' | 'off'; budget: number | null; system: string; max_tokens: number | null; temperature: number | null; top_p?: number | null; top_k?: number | null; min_p?: number | null; seed?: number | null; seed_drawn?: boolean; stop?: string[] }
-type Msg = { role: 'user' | 'assistant' | 'tool'; content: string; request?: Request; tool_calls?: Call[]; tool_call_id?: string; name?: string; json?: { ok: boolean; detail: string }; reasoning?: string; model?: string; engine?: string; thinking?: string; preset?: string; outcome?: Outcome; error?: string; stats?: Stats; at?: number }
+type Msg = { role: 'user' | 'assistant' | 'tool'; content: string; request?: Request; tool_calls?: Call[]; tool_call_id?: string; name?: string; json?: { ok: boolean; detail: string }; reasoning?: string; model?: string; engine?: string; thinking?: string; preset?: string; outcome?: Outcome; error?: string; stats?: Stats; at?: number; cortheon?: Cortheon }
+// what Cortheon did for a reply (TensorFold 1.0.9 with --cortheon): its searches and the pages it read and cites
+type Cortheon = { task?: string; searches?: number; pages_read?: number; sources?: string[] }
 // `timing`: 'engine' when the reply's `tensorfold` block gave the speed and the first-token time, 'page' when this
 // page's clock did (other engines, or the Python line). `measured` says who counted the tokens.
 // tokens and tps only when the engine counted them; events: what the page received, each possibly several tokens
 type Stats = { tokens: number | null; tps: number | null; events?: number; ttft: number; prompt?: number; cached?: number; reasoning?: number; measured: 'engine' | 'counted'
-  timing?: 'engine' | 'page'; budget?: number; sha?: string; drafts?: boolean; acceptance?: number }
-type Runtime = { tokens_per_second?: number; time_to_first_token?: number; token_sha?: string; drafts?: boolean; acceptance_rate?: number | null }
+  timing?: 'engine' | 'page'; budget?: number; sha?: string; drafts?: boolean; acceptance?: number; perRound?: number; prefill?: number }
+type Runtime = { tokens_per_second?: number; time_to_first_token?: number; token_sha?: string; drafts?: boolean; acceptance_rate?: number | null
+  tokens_per_round?: number | null; prefill_seconds?: number }
+/** The prompt's reading speed, tokens a second: the tokens not restored from the cache over the engine's prompt pass. */
+const prefillRate = (rt: Runtime | undefined, prompt: number | undefined, cached: number | undefined) =>
+  rt?.prefill_seconds && prompt != null && prompt - (cached ?? 0) > 0 ? (prompt - (cached ?? 0)) / rt.prefill_seconds : undefined
+const secs = (s: number) => s < 1 ? `${Math.round(s * 1000)} ms` : `${s.toFixed(1)} s`
+const rate = (r: number) => r >= 10 ? `${Math.round(r)}` : r.toFixed(1)
 
 const STORE = 'tfs-chat-v2'
 const STORE_V1 = 'tfs-chat'                 // the first release's key: same shape, messages without a model name
@@ -48,6 +56,32 @@ function load(): Stored | null {
   } catch { return null }
 }
 
+
+/** The reply being written, as this page sees it: the first token's time once it came, and a live speed from the
+ * stream events (each usually one token); the engine's own figures replace both when the reply ends. */
+function LivePills({ live }: { live: { t0: number; tFirst: number; events: number } }) {
+  const [now, setNow] = useState(() => performance.now())
+  useEffect(() => { const t = setInterval(() => setNow(performance.now()), 250); return () => clearInterval(t) }, [])
+  const writing = live.tFirst ? Math.max(0.001, (Math.max(now, live.tFirst) - live.tFirst) / 1000) : 0
+  return (
+    <span className="speed now" aria-label="Speed of the reply being written">
+      <span className="pill ttft" title="Time to first token, measured by this page">first token <b>{live.tFirst ? secs((live.tFirst - live.t0) / 1000) : `${secs((now - live.t0) / 1000)}…`}</b></span>
+      {live.tFirst > 0 && writing > 0.3 && <span className="pill tps" title="Live, from the stream events this page receives (each usually one token); the engine's exact figure replaces it when the reply ends">≈ {rate(live.events / writing)} <b>tok/s</b></span>}
+    </span>
+  )
+}
+
+/** What Cortheon's web research did for a reply: how many searches and pages, and the sources it cites. */
+function WebSources({ c }: { c: Cortheon }) {
+  const sources = (c.sources ?? []).filter((u) => /^https?:\/\//.test(u))
+  if (!c.searches && !c.pages_read && !sources.length) return null
+  return (
+    <details className="websources small">
+      <summary>Web research: {c.searches ?? 0} {c.searches === 1 ? 'search' : 'searches'}, {c.pages_read ?? 0} {c.pages_read === 1 ? 'page' : 'pages'} read{sources.length ? `, ${sources.length} ${sources.length === 1 ? 'source' : 'sources'}` : ''}</summary>
+      {sources.length > 0 && <ul>{sources.map((u) => <li key={u}><a href={u} target="_blank" rel="noopener noreferrer">{u}</a></li>)}</ul>}
+    </details>
+  )
+}
 
 /** The text as it arrives, revealed at a pace that follows the stream, so it reads smoothly; at once when motion is
  * reduced or the reply is complete. */
@@ -125,6 +159,9 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
   const [comparing, setComparing] = useState<[string, string] | null>(null)
   const [speedupPair, setSpeedupPair] = useState(false)                // the comparison is a speed-up check
   const [streaming, setStreaming] = useState(false)
+  // the reply being written, as this page sees it: when it was sent, its first token, the stream events so far
+  const [live, setLive] = useState<{ t0: number; tFirst: number; events: number } | null>(null)
+  const [webOff, setWebOff] = useState(false)               // this conversation asks without Cortheon's web research
   const [error, setError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<false | 'failed' | 'conflict'>(false)
   const abort = useRef<AbortController | null>(null)
@@ -211,6 +248,14 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
   const model = engine?.model ?? ''
   const engineLabel = engine?.managed === false ? `the engine at ${engine?.engine_url}` : engine?.engine_kind === 'native' ? 'TensorFold native' : engine?.engine_kind === 'python' ? 'TensorFold, Python line' : 'TensorFold'
   const ready = engine?.status === 'running'
+  const webResearch = !!engine?.command?.includes('--cortheon')     // the engine runs Cortheon (Settings)
+  // the model served is one TensorFold learns into: "Teach this" takes a message to Teach, which makes the copy first
+  const [learnsHere, setLearnsHere] = useState(false)
+  useEffect(() => {
+    const repo = engine?.model_repo
+    if (!repo || repo.startsWith('living:') || !engine?.owned) { setLearnsHere(false); return }
+    api.living().then((v) => setLearnsHere(!v.teachable && v.bases.includes(repo))).catch(() => setLearnsHere(false))
+  }, [engine?.model_repo, engine?.owned])
   const destination = engine?.engine_url ?? 'the engine'
 
   // the conversation as the API takes it: tool calls and tool results in OpenAI's shape
@@ -242,6 +287,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
         Object.assign(body, sampling(preset))
         const drawn = drawSeed(preset)
         if (drawn != null) body.seed = drawn
+        if (webResearch && webOff) body.cortheon = false
         if (thinking !== 'default') body.chat_template_kwargs = { enable_thinking: thinking === 'on' }
         if (thinking !== 'off' && budget) body.thinking_budget = budget
         if (ws.tools && tools?.length) { body.tools = tools; body.tool_choice = toolChoice(ws, continuing ? round + 1 : round); if (ws.oneCall) body.parallel_tool_calls = false }
@@ -281,7 +327,9 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
           json: !calls.length && ws.output !== 'text' ? (() => { const j = checkJson(m.content ?? '', schema)
             return body.response_format ? j : { ...j, detail: `${j.detail} (asked in the prompt: this engine does not constrain replies to JSON)` } })() : undefined,
           stats: { tokens: n, tps: rt?.tokens_per_second ?? (n ? n / Math.max(0.001, (performance.now() - t0) / 1000) : null), ttft: rt?.time_to_first_token ?? 0, prompt: d.usage?.prompt_tokens,
-            measured: d.usage ? 'engine' : 'counted', timing: rt?.tokens_per_second != null ? 'engine' : 'page', sha: rt?.token_sha, drafts: rt?.drafts, acceptance: rt?.acceptance_rate ?? undefined } }
+            measured: d.usage ? 'engine' : 'counted', timing: rt?.tokens_per_second != null ? 'engine' : 'page', sha: rt?.token_sha, drafts: rt?.drafts, acceptance: rt?.acceptance_rate ?? undefined,
+            perRound: rt?.tokens_per_round ?? undefined, prefill: prefillRate(rt, d.usage?.prompt_tokens, d.usage?.prompt_tokens_details?.cached_tokens) },
+          ...(d.cortheon ? { cortheon: d.cortheon as Cortheon } : {}) }
         history = [...history, reply]
         setMsgs(history)
         if (!calls.length) break
@@ -324,15 +372,22 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
     const t0 = performance.now(); let tFirst = 0; let counted = 0
     let content = ''; let reasoning = ''; let outcome: Outcome = 'interrupted'; let errMsg: string | undefined
     let runtime: Runtime | undefined                         // the engine's own figures for this reply, when it sends them
+    let cortheon: Cortheon | undefined
     let usage: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number }; completion_tokens_details?: { reasoning_tokens?: number } } | undefined
     const body: Record<string, unknown> = { model, stream: true, stream_options: { include_usage: true },
       messages: toApi(history) }
     Object.assign(body, sampling(preset))
     if (drawn != null) body.seed = drawn
+    if (webResearch && webOff) body.cortheon = false
     if (thinking !== 'default') body.chat_template_kwargs = { enable_thinking: thinking === 'on' }
     if (thinking !== 'off' && budget) body.thinking_budget = budget
     const current = () => generation.current === mine         // false once a new conversation replaced this one
-    const update = (final = false) => { if (current()) setMsgs((m) => [...m.slice(0, -1), { role: 'assistant', content, reasoning, ...context, ...(final ? { outcome, error: errMsg } : {}) }]) }
+    const update = (final = false) => {
+      if (!current()) return
+      setMsgs((m) => [...m.slice(0, -1), { role: 'assistant', content, reasoning, ...context, ...(final ? { outcome, error: errMsg } : {}) }])
+      setLive({ t0, tFirst, events: counted })
+    }
+    setLive({ t0, tFirst: 0, events: 0 })
     try {
       const r = await fetch('/engine/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify(body), signal: ctl.signal })
       if (!r.ok || !r.body) {
@@ -353,6 +408,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
           if (chunk.error) { outcome = 'error'; errMsg = (chunk.error as { message?: string }).message ?? 'the engine reported an error'; continue }
           if (chunk.usage) usage = chunk.usage as typeof usage
           if (chunk.tensorfold) runtime = { ...(chunk.tensorfold as Runtime), ...(chunk.speculative as Runtime | undefined) }
+          if (chunk.cortheon) cortheon = chunk.cortheon as Cortheon
           const choice = (chunk.choices as { delta?: Record<string, string>; finish_reason?: string }[] | undefined)?.[0]
           const delta = choice?.delta ?? {}
           const thought = delta.reasoning_content ?? delta.reasoning      // TensorFold's name, and other engines'
@@ -371,8 +427,9 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
         ttft: fromEngine ? runtime!.time_to_first_token! : ((tFirst || end) - t0) / 1000,
         prompt: usage?.prompt_tokens, cached: usage?.prompt_tokens_details?.cached_tokens, reasoning: usage?.completion_tokens_details?.reasoning_tokens,
         measured: usage ? 'engine' : 'counted', timing: fromEngine ? 'engine' : 'page',
-        budget: body.thinking_budget as number | undefined, sha: runtime?.token_sha, drafts: runtime?.drafts, acceptance: runtime?.acceptance_rate ?? undefined }
-      if (current()) setMsgs((m) => [...m.slice(0, -1), { role: 'assistant', content, reasoning, ...context, outcome, error: errMsg, stats }])
+        budget: body.thinking_budget as number | undefined, sha: runtime?.token_sha, drafts: runtime?.drafts, acceptance: runtime?.acceptance_rate ?? undefined,
+        perRound: runtime?.tokens_per_round ?? undefined, prefill: prefillRate(runtime, usage?.prompt_tokens, usage?.prompt_tokens_details?.cached_tokens) }
+      if (current()) setMsgs((m) => [...m.slice(0, -1), { role: 'assistant', content, reasoning, ...context, outcome, error: errMsg, stats, ...(cortheon ? { cortheon } : {}) }])
       if (outcome === 'error' && current()) setError(errMsg ?? 'The engine reported an error.')
     } catch (e) {
       const aborted = (e as Error).name === 'AbortError'
@@ -380,7 +437,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
       errMsg = aborted ? undefined : String(e)
       update(true)
       if (!aborted && current()) setError(String(e))
-    } finally { if (current()) { setStreaming(false); abort.current = null } }
+    } finally { if (current()) { setStreaming(false); setLive(null); abort.current = null } }
   }
   const opening = useRef(0)                                  // which opening may still replace the shown messages
   // the two sides of a comparison named by what wrote them ("Qwen3.8-27B, without the speed-up"), A and B until known
@@ -431,7 +488,8 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
     } catch (e) { toast(String(e), 'bad') }
   }
   // a living copy is served: a message can be handed to Teach, where its facts are found and approved
-  const teachable = !!engine?.model_repo?.startsWith('living:')
+  const teachable = !!engine?.model_repo?.startsWith('living:') || learnsHere
+  const onBase = !engine?.model_repo?.startsWith('living:')
   const teachThis = (text: string) => { try { sessionStorage.setItem('tfs:teach-text', text) } catch { /* no storage */ } location.hash = '#teach' }
   const copy = async (t: string) => { try { await copyText(t); toast('Copied') } catch { toast('The browser refused the clipboard', 'bad') } }
   const last = [...msgs].reverse().find((m) => m.role === 'assistant' && m.stats)
@@ -457,7 +515,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
         {convId && (() => { const c = convs.find((x) => x.id === convId); const family = sameQuestions(convs, convId); const names = namesOf(c ? [c, ...family] : family); return <div className="convbar">
           <b className="ctitle" title={c?.title}>{c?.title ?? 'This conversation'}</b>
           <span className="actions">
-            <button type="button" className={`btn sm ${checking ? '' : 'quiet'}`} aria-pressed={checking} onClick={() => { setChecking((v) => !v); setReplaying(false) }}>Check the speed-up</button>
+            <button type="button" className={`btn sm ${checking ? '' : 'quiet'}`} aria-pressed={checking} onClick={() => { setChecking((v) => !v); setReplaying(false) }} title="Asks the last questions again with drafts off: the same tokens prove the speed-up changes nothing in the replies">Verify speed-up &amp; exactness</button>
             <button type="button" className={`btn sm ${replaying ? '' : 'quiet'}`} aria-pressed={replaying} onClick={() => { setReplaying((v) => !v); setChecking(false) }}>Replay</button>
             {family.length > 0 && <select className="sel sm" value="" aria-label="Compare its replies with a replay of the same questions" onChange={(e) => { if (e.target.value) { setSpeedupPair(false); setComparing([convId, e.target.value]) } }}>
               <option value="">Compare with a replay…</option>{family.map((o) => <option key={o.id} value={o.id}>{names.get(o.id)}</option>)}
@@ -472,9 +530,12 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
           {checking || comparing ? <span className="small muted">{checking ? 'Checking the speed-up with the settings each answer was written with' : 'Comparing two conversations'}</span>
             : <button type="button" className={`btn sm ${options ? '' : 'quiet'}`} onClick={() => setOptions((v) => !v)} aria-expanded={options}>Options</button>}
           <span className="right">
+          {streaming && live && <LivePills live={live} />}
           {last?.stats && !streaming && <span className="speed" aria-label="Speed of the last reply">
-            <span className="pill ttft" title="Time to first token: from sending the message to the first word of the reply">first token <b>{last.stats.ttft < 1 ? `${Math.round(last.stats.ttft * 1000)} ms` : `${last.stats.ttft.toFixed(1)} s`}</b></span>
-            {last.stats.measured === 'engine' && last.stats.tps != null && <span className="pill tps" title="Tokens a second while the reply was written">{last.stats.tps >= 10 ? Math.round(last.stats.tps) : last.stats.tps.toFixed(1)} <b>tok/s</b></span>}
+            <span className="pill ttft" title="Time to first token: from sending the message to the first word of the reply">first token <b>{secs(last.stats.ttft)}</b></span>
+            {last.stats.measured === 'engine' && last.stats.tps != null && <span className="pill tps" title="Tokens a second while the reply was written">{rate(last.stats.tps)} <b>tok/s</b></span>}
+            {last.stats.drafts && last.stats.acceptance != null && <span className="pill drafts" title="Speculative decoding: a small model drafts tokens ahead and the model checks them all in one pass, keeping the ones it would have written itself. The reply is the same, token for token, as without drafts: Verify speed-up & exactness proves it.">
+              <b>{Math.round(last.stats.acceptance * 100)}%</b> drafts kept{last.stats.perRound ? `, ${last.stats.perRound.toFixed(1)} tok/round` : ''}</span>}
           </span>}
           <span className="count">{msgs.length ? `${msgs.length} messages` : ''}</span>
           </span>
@@ -492,6 +553,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
             {[...PRESETS, ...mine].map((p) => <option key={p.name}>{p.name}</option>)}
           </select>
           <button type="button" className="btn sm quiet" onClick={() => setEditing((v) => !v)} aria-expanded={editing}>{editing ? 'Done' : 'Edit'}</button>
+          {webResearch && <label className="small" title="Cortheon runs in this engine (Settings): searches written from the conversation go to DuckDuckGo, and pages are read from this machine"><input type="checkbox" checked={!webOff} onChange={(e) => setWebOff(!e.target.checked)} /> Web research</label>}
           <button type="button" className={`btn sm ${workshopOn ? '' : 'quiet'}`} onClick={() => setShowWs((v) => !v)} aria-expanded={showWs}>Tools &amp; JSON{workshopOn ? ' (on)' : ''}</button>
         </div>}
         {editing && !checking && !comparing && <PresetEditor preset={preset} setPreset={setPreset} mine={mine} reload={reloadPresets} toast={toast} />}
@@ -513,7 +575,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
             </div>
           ) : (
             <div className="thread">
-              {msgs.map((m, i) => m.role === 'user' ? <div key={i} className="msg user">{m.content}{teachable && <button type="button" className="btn sm quiet teach-this" onClick={() => teachThis(m.content)} title="Open Teach with this message, to approve the facts it holds">Teach this</button>}</div> : m.role === 'tool' ? (
+              {msgs.map((m, i) => m.role === 'user' ? <div key={i} className="msg user">{m.content}{teachable && <button type="button" className="btn sm quiet teach-this" onClick={() => teachThis(m.content)} title={onBase ? 'Open Teach with this message: it learns into a copy of this model, made there first (the original stays as it is)' : 'Open Teach with this message, to approve the facts it holds'}>Teach this</button>}</div> : m.role === 'tool' ? (
                 <div key={i} className="msg tool"><span className="small muted">{m.name} returned</span><pre>{m.content}</pre></div>
               ) : (
                 <div key={i} className="msg ai">
@@ -524,6 +586,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
                   {m.tool_calls?.map((c) => <div key={c.id} className="toolcall"><code>{c.name}({c.arguments})</code>
                     <span className={c.check ? 'bad small' : 'good small'}>{c.check ? ` ✗ ${c.check}` : ' ✓ matches its parameters'}</span></div>)}
                   {m.json && <div className={`small ${m.json.ok ? 'good' : 'bad'}`}>{m.json.ok ? '✓' : '✗'} {m.json.detail}</div>}
+                  {m.cortheon && <WebSources c={m.cortheon} />}
                   {streaming && i === msgs.length - 1 && <span className="cursor" />}
                 </div>
               ))}
@@ -542,7 +605,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
               ? <><span>Last reply <b>{num(last.stats.tokens)} tokens</b>{last.stats.reasoning ? ` (${num(last.stats.reasoning)} thinking${last.stats.budget && last.stats.reasoning >= last.stats.budget ? ', cut at the budget' : ''})` : ''}</span>{last.stats.tps != null && <span><b>{Math.round(last.stats.tps)} tok/s</b></span>}</>
               : <span>Last reply <b>{num(last.stats.events ?? last.stats.tokens)} stream events</b></span>}
             <span>first token after <b>{last.stats.ttft < 1 ? `${Math.round(last.stats.ttft * 1000)} ms` : `${last.stats.ttft.toFixed(1)} s`}</b></span>
-            {last.stats.prompt != null && <span>prompt <b>{num(last.stats.prompt)} tokens</b>{last.stats.cached != null ? `, ${num(last.stats.cached)} from cache` : ''}</span>}
+            {last.stats.prompt != null && <span>prompt <b>{num(last.stats.prompt)} tokens</b>{last.stats.cached != null ? `, ${num(last.stats.cached)} from cache` : ''}{last.stats.prefill ? <>, read at <b>{num(Math.round(last.stats.prefill))} tok/s</b></> : ''}</span>}
             {last.stats.drafts != null && <span>drafts <b>{last.stats.drafts ? 'on' : 'off'}</b>{last.stats.acceptance != null ? `, ${Math.round(last.stats.acceptance * 100)}% kept` : ''}</span>}
             {last.stats.sha && <span title="A digest of the reply's tokens: the same request with drafts off gives the same one when decoding is exact">tokens <b className="mono">{last.stats.sha}</b></span>}
             <span className="faint">{last.stats.measured !== 'engine' ? 'the engine sent no token count; events are not tokens'

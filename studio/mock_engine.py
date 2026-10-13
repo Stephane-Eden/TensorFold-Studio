@@ -32,6 +32,7 @@ class State:
     learn_seconds = 0.05                           # how long the mock "learns" each fact (the tests of a stop raise it)
     # another engine, for the tests: no `tensorfold` block on replies (so no prefill time), owned by someone else
     plain = False
+    no_prompt_scores = False                       # an engine without `prompt_logprobs`, as on Metal: a 400
     # Living Weights, as TensorFold 1.0.7 serves it with --slide: facts learned in turn, a fact naming "unknowable"
     # missed; questions sharing a long word with a kept fact are answered with it
     facts: ClassVar[list[dict]] = []
@@ -167,6 +168,39 @@ def _handler(rate_tps: float, api_key: str | None = None):
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
+        def _prompt_logprobs(self, path: str, body: dict) -> None:
+            """vLLM's `prompt_logprobs`, as TensorFold 1.0.8 answers it on CUDA: the prompt split into words, each
+            likely at 0.6 after the first, then the best others; refused where the real engine refuses it."""
+
+            n = body["prompt_logprobs"]
+            if State.no_prompt_scores:
+                return self._json(400, {"error": {"message": "prompt_logprobs is not supported by this engine"}})
+            if path != "/v1/completions" or body.get("stream"):
+                return self._json(400, {"error": {"message": "prompt_logprobs are supported on /v1/completions "
+                                                             "without streaming only"}})
+            if isinstance(n, bool) or not isinstance(n, int) or not 0 <= n <= 20:
+                return self._json(400, {"error": {"message": "prompt_logprobs must be an integer between 0 and 20, or null"}})
+            words = str(body.get("prompt") or "").split(" ")
+            toks = [w if i == 0 else " " + w for i, w in enumerate(words)]
+
+            def tid(tok: str) -> str:
+                return str(int(hashlib.sha256(tok.encode()).hexdigest()[:6], 16))
+
+            def row(tok: str) -> dict:
+                out = {tid(tok): {"logprob": math.log(0.6), "rank": 1, "decoded_token": tok}}
+                for k in range(1, n):
+                    out[str(k)] = {"logprob": math.log(0.3 / 2 ** k), "rank": k + 1, "decoded_token": f" alt{k}"}
+                return out
+            with State.lock:
+                State.requests += 1
+            return self._json(200, {"id": "cmpl-mock-prompt", "object": "text_completion", "model": MODEL,
+                                    "choices": [{"index": 0, "text": " The", "finish_reason": "length", "logprobs": None,
+                                                 "prompt_logprobs": [None, *(row(t) for t in toks[1:])]}],
+                                    "usage": {"prompt_tokens": len(toks), "completion_tokens": 1,
+                                              "total_tokens": len(toks) + 1},
+                                    **({} if State.plain else {"tensorfold": {"engine": "mock",
+                                                                              "drafts": body.get("draft") is not False}})})
+
         def _living_reply(self, body: dict) -> str | None:
             """The Studio's preview and its checks, answered the way a model would."""
 
@@ -205,6 +239,8 @@ def _handler(rate_tps: float, api_key: str | None = None):
                 return self._json(404, {"error": {"message": f"unknown path {self.path}"}})
             if not self._authorized():
                 return self._json(401, {"error": {"message": "invalid API key"}})
+            if body.get("prompt_logprobs") is not None:
+                return self._prompt_logprobs(p, body)
             special = self._living_reply(body)
             if special is not None:
                 return self._json(200, {"id": "chatcmpl-mock-living", "object": "chat.completion", "model": MODEL,

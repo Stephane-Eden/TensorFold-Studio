@@ -50,7 +50,8 @@ def _stamp(path: str) -> tuple:
 # flags the Studio sets itself from Settings, and flags that would put a secret on the command line
 MANAGED = {"--host": "the Studio sets it (Settings, Share on the network)", "--port": "the engine address in Settings",
            "--context": "Longest conversation in Settings", "--thinking": "Thinking in Settings",
-           "--no-thinking": "Thinking in Settings", "--dashboard": "the Studio turns it on"}
+           "--no-thinking": "Thinking in Settings", "--dashboard": "the Studio turns it on",
+           "--cortheon": "Web research in Settings, which says what leaves the machine"}
 # Living Weights: learning is turned on by the Studio for a copy that learns, bound to loopback; never by hand
 LEARNING = ("--slide",)
 
@@ -341,6 +342,8 @@ def build_command(binary: str, model: str, s: Settings, *, host: str = "127.0.0.
         add("--thinking")
     elif s.thinking == "off":
         add("--no-thinking")
+    if s.cortheon:                                # searches and page reads leave the machine: Settings says so
+        add("--cortheon")
     if "--dashboard" in flags:
         cmd.append("--dashboard")                # /stats for the Studio, /dashboard for anyone curious
     try:

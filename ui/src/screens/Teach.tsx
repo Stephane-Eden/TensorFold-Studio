@@ -124,6 +124,7 @@ export default function Teach({ engine, toast, refreshEngine, stale }: Ctx) {
       {view?.teachable && <div className="notice info">Learning cannot run here: {view.teachable}.{/not installed/.test(view.teachable) ? ' Copies need the native engine to be served too.' : ' Copies can still be made and served without learning.'}</div>}
 
       {!served && view && <div className="card">
+        {text.trim() && <div className="notice info">The message from Chat is kept here: <i>“{text.trim().length > 160 ? `${text.trim().slice(0, 160)}…` : text.trim()}”</i>. {view.copies.length ? 'Serve a copy below' : 'Make a copy below, then serve it'}, and it is ready to teach.</div>}
         {view.copies.length ? <>
           <b>Which copy should learn?</b>
           <p className="small muted">A copy learns while it runs. Serve one below (the AI restarts, a few seconds), then teach it here.</p>

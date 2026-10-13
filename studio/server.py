@@ -152,7 +152,7 @@ LOGS_STREAM, LOGS_COOKIE = "/api/engine/logs/stream", "tfs_logs"      # an Event
 
 # settings that change what the engine is or how it starts: not changed while something drives it
 ENGINE_SETTINGS = ("engine_url", "remote", "model", "budget_fraction", "context", "thinking", "extra_args", "share",
-                   "api_key")
+                   "api_key", "cortheon")
 
 
 def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine | None = None,
@@ -830,48 +830,48 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
             raise HTTPException(400, "suites must be a list of suite ids")
         target = body.get("target")
         try:
-            # a KL run's reference: another engine at an address, or (none given) the same engine with drafts off
-            reference, kl_load = None, 0
+            # a KL run's reference: another engine (an address, or a Fleet machine), or (none given) the same engine
+            # with drafts off; and what both read: their replies to the suites, or a fixed text scored at every position
+            reference, kl_load, kl_text, tags = None, 0, None, {}
             if body.get("mode") == "kl":
                 ref = body.get("reference")
                 if ref is not None:
-                    if not isinstance(ref, dict) or not isinstance(ref.get("url"), str):
-                        raise ValueError("reference must be an object with a url")
-                    r_url, r_key = settings_mod._engine_url(ref["url"]), ref.get("key") or None
-                    r_ident = engines.identify(r_url, key=r_key)
+                    r_ident, r_key, r_headers, r_peer = engine_named(ref, "reference")
                     if r_ident.error:
-                        raise ValueError(f"{r_url}: {r_ident.error}")
+                        raise ValueError(f"{r_peer or r_ident.url}: {r_ident.error}")
                     r_model = ref.get("model") or next(iter(r_ident.models), None)
                     if r_model not in r_ident.models:
-                        raise ValueError(f"{r_url} does not serve {r_model!r}")
-                    reference = (r_ident.url, r_key, r_model)
+                        raise ValueError(f"{r_peer or r_ident.url} does not serve {r_model!r}")
+                    reference = (r_ident.url, r_key, r_model, r_headers)
+                    if r_peer:
+                        tags["reference_peer"] = r_peer
                 kl_load = body.get("kl_load") or 0
                 if isinstance(kl_load, bool) or not isinstance(kl_load, int) or not 0 <= kl_load <= 32:
                     raise ValueError("kl_load must be 0 to 32 requests")
+                kl_text = body.get("kl_text")
             if target is not None:
-                # another engine at an address: identified, its model the one asked or the first it lists
-                if not isinstance(target, dict) or not isinstance(target.get("url"), str):
-                    raise ValueError("target must be an object with a url")
-                url = settings_mod._engine_url(target["url"])
-                key = target.get("key") or None
-                ident = engines.identify(url, key=key)
+                # another engine: identified, its model the one asked or the first it lists
+                ident, key, headers, peer = engine_named(target, "target")
+                at = peer or ident.url
                 if ident.error:
-                    raise ValueError(f"{url}: {ident.error}")
+                    raise ValueError(f"{at}: {ident.error}")
                 model = target.get("model") or next(iter(ident.models), None)
                 if model not in ident.models:
-                    raise ValueError(f"{url} does not serve {model!r}; it serves {', '.join(ident.models) or 'nothing'}")
+                    raise ValueError(f"{at} does not serve {model!r}; it serves {', '.join(ident.models) or 'nothing'}")
                 name = ident.engine + (f" {ident.version}" if ident.version else "")
                 label = target.get("label")
                 if isinstance(label, str) and label.strip() and ident.engine == "OpenAI-compatible":
                     name = label.strip()[:60]           # a server that does not say what it is, named by the user
+                if peer:
+                    tags["peer"] = peer
                 max_context = body.get("max_context")
                 if max_context is not None and not (isinstance(max_context, int) and max_context > 0):
                     raise ValueError("max_context must be a number of tokens")
                 return bench_go(str(body.get("mode") or "quick"), suites=suites or None,
                                     exactness=bool(body.get("exactness", True)), engine_name=name,
-                                    max_context=max_context, target=(ident.url, key, model),
+                                    max_context=max_context, target=(ident.url, key, model, headers),
                                     max_concurrency=concurrency(body), full=bool(body.get("full")),
-                                    reference=reference, kl_load=kl_load)
+                                    reference=reference, kl_load=kl_load, kl_text=kl_text, tags=tags or None)
             name = served_name()
             max_context = body.get("max_context")
             if max_context is not None and not (isinstance(max_context, int) and max_context > 0):
@@ -879,21 +879,50 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
             return bench_go(str(body.get("mode") or "quick"), suites=suites or None,
                                 exactness=bool(body.get("exactness", True)), engine_name=name, max_context=max_context,
                                 max_concurrency=concurrency(body), full=bool(body.get("full")),
-                                reference=reference, kl_load=kl_load)
+                                reference=reference, kl_load=kl_load, kl_text=kl_text, tags=tags or None)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(409, str(exc)) from exc
 
+    def fleet_engine(pid: object) -> tuple[engines.Endpoint, str | None, dict, str]:
+        """A Fleet machine's engine, reached through its Studio's relay with the key or token kept here: the page names
+        the machine, never holds its secrets. Unknown machine: 404; one that does not answer: 502."""
+
+        if not isinstance(pid, str) or not pid:
+            raise HTTPException(400, "peer must be the id of a machine in Fleet")
+        peer = next((p for p in peers.all() if p["id"] == pid), None)
+        if peer is None:
+            raise HTTPException(404, "no such machine in the fleet")
+        try:
+            base, key, headers = fleet.engine_of(peer)
+            with fleet.client() as c:
+                c.headers.update(headers)
+                ident = engines.identify(base, key=key, client=c)
+        except (httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(502, f"{peer['name']} did not answer: {exc}") from exc
+        return ident, key, headers, peer["name"]
+
+    def engine_named(spec: object, what: str) -> tuple[engines.Endpoint, str | None, dict, str | None]:
+        """The engine a Bench request names: a Fleet machine (``peer``), or an address with the key typed. Returns
+        it identified, its key, the headers to send beside it, and the machine's name for a Fleet machine."""
+
+        if isinstance(spec, dict) and "peer" in spec:
+            return fleet_engine(spec["peer"])
+        if not isinstance(spec, dict) or not isinstance(spec.get("url"), str):
+            raise ValueError(f"{what} must be an object with a url, or a Fleet machine's id as peer")  # noqa: TRY004 - one error type for the page
+        key = spec.get("key") or None
+        return engines.identify(settings_mod._engine_url(spec["url"]), key=key), key, {}, None
+
     @app.post("/api/bench/identify")
     def bench_identify(body: dict[str, Any]):
-        """Which engine answers at an address, and the models it serves: for the Bench's other-engine target."""
+        """Which engine answers at an address, or serves a Fleet machine (``peer``), and the models it serves: for
+        the Bench's other-engine target and the KL reference."""
 
         try:
-            url = settings_mod._engine_url(body.get("url"))
+            ep, *_ = engine_named(body, "the engine")
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        ep = engines.identify(url, key=body.get("key") or None)
         return {"url": ep.url, "engine": ep.engine, "version": ep.version, "models": ep.models, "error": ep.error}
 
     @app.get("/api/bench/runs/{run_id}")

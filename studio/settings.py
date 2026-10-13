@@ -34,6 +34,7 @@ class Settings:
     extra_args: list[str] = field(default_factory=list)
     share: bool = False                  # bind the engine on every interface; the API key then protects it
     api_key: str | None = None           # the engine's API key, generated when sharing is turned on
+    cortheon: bool = False               # Cortheon's reasoning and web research in the engine (TensorFold 1.0.9)
     theme: str = "system"
     energy_price: float | None = None    # electricity, per kWh, for the Bench's energy cost
     currency: str = "EUR"
@@ -67,7 +68,7 @@ def validate(patch: dict) -> dict:
             if value is not None and (not isinstance(value, str) or not value.strip()):
                 raise ValueError("api_key must be a non-empty string, or null to forget it")
             out[key] = value.strip() if value else None
-        elif key in ("remote", "share", "setup_hidden"):
+        elif key in ("remote", "share", "setup_hidden", "cortheon"):
             if not isinstance(value, bool):
                 raise ValueError(f"{key} must be true or false")
             out[key] = value

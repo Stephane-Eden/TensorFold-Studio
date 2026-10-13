@@ -141,6 +141,17 @@ def _get(client: httpx.Client, url: str, path: str, token: str | None) -> httpx.
     return client.get(url + path, headers={TOKEN_HEADER: token} if token else {})
 
 
+def engine_of(peer: dict) -> tuple[str, str | None, dict]:
+    """A machine's engine as this Studio reaches it: through its Studio's relay (`/engine`), with the engine's key
+    read from that Studio, or for an engine without one the Studio's token; both stay here, never on a page.
+    Returns the base URL, the key, and the headers to send beside it."""
+
+    h = {TOKEN_HEADER: peer["token"]} if peer.get("token") else {}
+    with client() as c:
+        key = _get(c, peer["url"], "/api/connect", peer.get("token")).raise_for_status().json().get("api_key")
+    return peer["url"].rstrip("/") + "/engine", key or None, {} if key else h
+
+
 def probe(peer: dict) -> dict:
     """One machine's summary, read from its Studio, with how long it took and why it failed if it did."""
 

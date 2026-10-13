@@ -114,6 +114,7 @@ export type Settings = {
   currency: string
   extra_args: string[]
   share: boolean
+  cortheon: boolean                    // Cortheon's web research in the engine, at its next start (TensorFold 1.0.9)
   api_key: string | null
   api_key_set: boolean
   theme: 'system' | 'light' | 'dark'
@@ -342,7 +343,9 @@ export const api = {
   benchRuns: () => j<{ runs: BenchRunRow[]; busy: boolean; current: string | null }>('/api/bench/runs'),
   benchRun: (id: string) => j<BenchRun>(`/api/bench/runs/${id}`),
   benchIdentify: (url: string, key?: string) => j<{ url: string; engine: string | null; version: string | null; models: string[]; error: string | null }>('/api/bench/identify', { method: 'POST', body: JSON.stringify({ url, key }) }, 15000),
-  benchStart: (body: { mode: BenchMode; suites?: string[]; exactness: boolean; max_context?: number; max_concurrency?: number; full?: boolean; target?: { url: string; key?: string; model?: string; label?: string }; reference?: { url: string; key?: string; model: string }; kl_load?: number }) =>
+  // a Fleet machine's engine, identified by this Studio through that machine's Studio: no key or token on the page
+  benchIdentifyPeer: (peer: string) => j<{ url: string; engine: string | null; version: string | null; models: string[]; error: string | null }>('/api/bench/identify', { method: 'POST', body: JSON.stringify({ peer }) }, 20000),
+  benchStart: (body: { mode: BenchMode; suites?: string[]; exactness: boolean; max_context?: number; max_concurrency?: number; full?: boolean; target?: BenchEngineRef & { label?: string }; reference?: BenchEngineRef & { model: string }; kl_load?: number; kl_text?: string }) =>
     j<BenchRun>('/api/bench/runs', { method: 'POST', body: JSON.stringify(body) }, 30000),
   benchCancel: (id: string) => j<{ cancelling: boolean }>(`/api/bench/runs/${id}/cancel`, { method: 'POST' }),
   benchDelete: (id: string) => j<{ deleted: string }>(`/api/bench/runs/${id}`, { method: 'DELETE' }),
@@ -412,6 +415,8 @@ export type BenchResult = {
   m: { tokens: number | null; tps: number | null; ttft: number | null; prefill_s: number | null; timing: 'engine' | 'studio'
     gap_p50: number | null; gap_p95: number | null; finish: string | null; sha: string | null; runtime: Record<string, unknown> & { acceptance_rate?: number } }
 }
+// another engine for the Bench: an address with the key typed, or a Fleet machine resolved by this Studio
+export type BenchEngineRef = { url: string; key?: string; model?: string } | { peer: string; model?: string }
 export type BenchMode = 'quick' | 'profile' | 'prefill' | 'load' | 'quality' | 'tools' | 'kl'
 export type BenchRunRow = { id: string; created: number; finished: number | null; mode: BenchMode; status: string; model: string | null; engine: string | null; summary: BenchSummary | null; error: string | null; kl?: { mean_kl: number | null } }
 export type BenchRun = BenchRunRow & {
@@ -433,10 +438,12 @@ export type BenchRun = BenchRunRow & {
   results: BenchResult[]
   // a KL run: what it compared with, the load, and the figures (`kl.py`)
   kl_reference?: { kind: 'drafts-off' } | { kind: 'address'; url: string; model: string }; kl_load?: number
+  kl_text?: string | null                      // a KL run on a fixed text: every position of it scored
+  tags?: { peer?: string; reference_peer?: string; [k: string]: unknown }   // a Fleet machine measured or compared with
   kl_load_verified?: boolean
   kl_load_done?: { ok: number; failed: number; late?: number; full_share?: number | null; last_error: string | null }
-  kl?: { positions: number; prompts: number; mean_kl: number; median_kl: number; p95_kl: number; p99_kl: number; max_kl: number; same_top: number; zero_kl: number; identical: number; differs_at_median: number | null; tokens: number; requests: number; top: number
-    worst: { prompt: string; at: number; kl: number; ref: string; cand: string; same_top: boolean }[] }
+  kl?: { positions: number; prompts: number; mean_kl: number; median_kl: number; p95_kl: number; p99_kl: number; max_kl: number; same_top: number; zero_kl: number; identical: number; differs_at_median: number | null; tokens: number; requests: number; top: number; same_distribution?: number; unscored?: number
+    worst: { prompt: string; at: number; kl: number; token?: string; ref: string; cand: string; same_top: boolean }[] }
 }
 // power and heat sampled during a run; `series` rows are [seconds, watts, cpu °C, gpu °C, engine bytes]
 export type BenchHardware = {

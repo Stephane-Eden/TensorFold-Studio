@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, download, gb, num, type BenchBlock, type BenchHardware, type LoadLevel, type BenchMode, type BenchRun, type BenchRunRow, type BenchSuites, type SweepPoint } from '../api'
 import type { Ctx } from '../ctx'
 import { showSub, useSub } from '../route'
-import { KL_START, KlOptions, KlReport, klReference, type KlState } from './BenchKl'
+import { KL_START, KlOptions, KlReport, PeerPick, klReference, klText, useFleetPeers, type KlState } from './BenchKl'
 import { copyText, shareImage } from '../shareCard'
 import CustomSuites from './BenchSuites'
 import Compare from './BenchCompare'
@@ -372,14 +372,22 @@ export default function Bench({ engine, toast, stale }: Ctx) {
   const [found, setFound] = useState<Awaited<ReturnType<typeof api.benchIdentify>> | null>(null)
   const [addrModel, setAddrModel] = useState('')
   const [addrLabel, setAddrLabel] = useState('')
+  // a Fleet machine instead of an address typed by hand: this Studio reaches its engine, the page holds no secret
+  const [addrPeer, setAddrPeer] = useState('')
+  const peers = useFleetPeers(aim === 'address')
   const [klForm, setKlForm] = useState<KlState>(KL_START)
   const klRef = klReference(klForm)
+  const klFixed = mode === 'kl' && klForm.fixed
   const [klLoad, setKlLoad] = useState(0)
-  const check = async () => {
+  const check = async (peer = addrPeer) => {
     setFound(null)
-    try { localStorage.setItem('tfs-bench-addr', addr) } catch { /* no storage */ }
-    try { const f = await api.benchIdentify(addr, addrKey || undefined); setFound(f); setAddrModel(f.models[0] ?? '') } catch (e) { setFound({ url: addr, engine: null, version: null, models: [], error: String(e) }) }
+    if (!peer) try { localStorage.setItem('tfs-bench-addr', addr) } catch { /* no storage */ }
+    try {
+      const f = peer ? await api.benchIdentifyPeer(peer) : await api.benchIdentify(addr, addrKey || undefined)
+      setFound(f); setAddrModel(f.models[0] ?? '')
+    } catch (e) { setFound({ url: addr, engine: null, version: null, models: [], error: String(e) }) }
   }
+  const pickPeer = (p: string) => { setAddrPeer(p); setFound(null); if (p) check(p) }
   const [err, setErr] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
   const [ticked, setTicked] = useState<string[]>([])                    // runs chosen for a comparison, at most two
@@ -413,7 +421,8 @@ export default function Bench({ engine, toast, stale }: Ctx) {
 
   const servedReady = engine?.status === 'running'
   const ready = aim === 'served' ? servedReady : !!(found && !found.error && addrModel)
-  const targetName = aim === 'served' ? engine?.model ?? 'the served model' : `${addrModel || 'a model'} on ${found?.engine ?? 'another engine'}`
+  const peerName = peers?.find((p) => p.id === addrPeer)?.name
+  const targetName = aim === 'served' ? engine?.model ?? 'the served model' : `${addrModel || 'a model'} on ${addrPeer && peerName ? peerName : found?.engine ?? 'another engine'}`
   const served = engine?.startup?.context_tokens ?? engine?.context_length ?? null
   // the largest size the last sweep of this model read, to say how long a sweep takes here
   const lastBig = runs.find((r) => r.mode === 'prefill' && r.model === engine?.model && r.summary?.sweep?.length)?.summary?.sweep?.filter((p) => p.ttft != null && !p.error).slice(-1)[0]
@@ -426,9 +435,10 @@ export default function Bench({ engine, toast, stale }: Ctx) {
     setErr(null)
     setStarting(true)
     try {
-      const r = await api.benchStart({ mode: m, suites: m === 'profile' || m === 'load' || m === 'kl' ? chosen : m === 'quality' && cats.length ? cats : undefined, exactness: ex, max_context: m === 'prefill' && limit ? limit : undefined, max_concurrency: m === 'load' ? atOnce : undefined, full: m === 'tools' ? fullTools : undefined,
-        target: a === 'address' ? { url: addr, key: addrKey || undefined, model: addrModel, label: addrLabel || undefined } : undefined,
-        ...(m === 'kl' ? { reference: klRef && klRef !== 'unchecked' ? klRef : undefined, kl_load: klLoad } : {}) })
+      const fixed = m === 'kl' ? klText(klForm) : undefined
+      const r = await api.benchStart({ mode: m, suites: m === 'profile' || m === 'load' || (m === 'kl' && fixed === undefined) ? chosen : m === 'quality' && cats.length ? cats : undefined, exactness: ex, max_context: m === 'prefill' && limit ? limit : undefined, max_concurrency: m === 'load' ? atOnce : undefined, full: m === 'tools' ? fullTools : undefined,
+        target: a !== 'address' ? undefined : addrPeer ? { peer: addrPeer, model: addrModel } : { url: addr, key: addrKey || undefined, model: addrModel, label: addrLabel || undefined },
+        ...(m === 'kl' ? { reference: klRef && klRef !== 'unchecked' ? klRef : undefined, kl_load: klLoad, kl_text: fixed } : {}) })
       setSelected(r.id); setBusyId(r.id); refresh()
     } catch (e) { setErr(String(e)) } finally { setStarting(false) }
   }
@@ -468,13 +478,17 @@ export default function Bench({ engine, toast, stale }: Ctx) {
           <label className="small"><input type="radio" name="aim" checked={aim === 'served'} onChange={() => setAim('served')} /> The engine this Studio serves{engine?.model ? ` (${engine.model})` : ''}</label>
           <label className="small"><input type="radio" name="aim" checked={aim === 'address'} onChange={() => setAim('address')} /> Another engine at an address, to compare with</label>
           {aim === 'address' && <div className="aim-row">
-            <input className="input" value={addr} onChange={(e) => { setAddr(e.target.value); setFound(null) }} aria-label="Engine address" placeholder="http://127.0.0.1:11434" spellCheck={false} />
-            <input className="input" type="password" value={addrKey} onChange={(e) => setAddrKey(e.target.value)} aria-label="Its API key" placeholder="API key, if it wants one" autoComplete="off" />
-            <button type="button" className="btn sm" onClick={check}>Check</button>
+            <PeerPick peers={peers} value={addrPeer} onChange={pickPeer} label="A Fleet machine" />
+            {!addrPeer && <>
+              <input className="input" value={addr} onChange={(e) => { setAddr(e.target.value); setFound(null) }} aria-label="Engine address" placeholder="http://127.0.0.1:11434" spellCheck={false} />
+              <input className="input" type="password" value={addrKey} onChange={(e) => setAddrKey(e.target.value)} aria-label="Its API key" placeholder="API key, if it wants one" autoComplete="off" />
+            </>}
+            <button type="button" className="btn sm" onClick={() => check()}>Check</button>
             {found && (found.error ? <span className="small bad">{found.error}</span>
               : <span className="small">{found.engine}{found.version ? ` ${found.version}` : ''}: <select className="sel" value={addrModel} onChange={(e) => setAddrModel(e.target.value)} aria-label="Model">{found.models.map((m) => <option key={m}>{m}</option>)}</select>
                 {found.engine === 'OpenAI-compatible' && <input className="input" style={{ minWidth: 140, marginLeft: 8 }} value={addrLabel} onChange={(e) => setAddrLabel(e.target.value)} placeholder="its name, e.g. mlx-lm 0.32" aria-label="Engine name" />}</span>)}
           </div>}
+          {aim === 'address' && addrPeer && <p className="small muted">This Studio reaches that machine's engine through its Studio, with the token kept in Fleet: no key is typed or shown here.</p>}
           {aim === 'address' && <p className="small muted">Same protocol as for TensorFold. Its replies are compared by text with a TensorFold run; the drafts-off check is TensorFold's own. Ollama cuts a prompt longer than its context: set <code>OLLAMA_CONTEXT_LENGTH</code> on its server before a long sweep.</p>}
         </div>
         <p className="small muted">{info?.modes[mode]}{(mode === 'quick' || mode === 'profile') && exactness ? ', twice as long with the exactness check' : ''}.</p>
@@ -486,7 +500,7 @@ export default function Bench({ engine, toast, stale }: Ctx) {
             <option value={0}>the served window{served ? ` (${num(served)})` : ''}</option>
           </select> <span className="muted">Large sizes take minutes{lastBig ? `: ${num(lastBig.size)} tokens took ${secs(lastBig.ttft)} to read the last time here` : ''}.</span></label>
         )}
-        {(mode === 'profile' || mode === 'load' || mode === 'kl') && info && (
+        {(mode === 'profile' || mode === 'load' || (mode === 'kl' && !klFixed)) && info && (
           <div className="filters" role="group" aria-label="Suites">
             {[...info.suites, ...info.custom.map((c) => ({ ...c, mine: true }))].map((s) => <button key={s.id} type="button" className={'mine' in s ? 'mine' : undefined} title={'mine' in s ? 'One of your suites' : undefined} aria-pressed={chosen.includes(s.id)} onClick={() => setChosen((c) => c.includes(s.id) ? c.filter((x) => x !== s.id) : [...c, s.id])}>{s.name}{'mine' in s && <small>yours</small>}</button>)}
           </div>
@@ -502,7 +516,7 @@ export default function Bench({ engine, toast, stale }: Ctx) {
         </>}
         {(mode === 'quick' || mode === 'profile') && <label className="toggle small"><input type="checkbox" checked={exactness} onChange={(e) => setExactness(e.target.checked)} /> Check exactness: write each reply again with the speed-up off and compare the tokens</label>}
         <div className="actions">
-          <button className="btn primary" aria-busy={starting} disabled={!ready || stale || !!busyId || starting || ((mode === 'profile' || mode === 'load' || mode === 'kl') && !chosen.length) || (mode === 'tools' && !info?.tools.installed) || (mode === 'kl' && klRef === 'unchecked')} onClick={() => start()}>{starting ? 'Starting…' : `Run on ${targetName}`}</button>
+          <button className="btn primary" aria-busy={starting} disabled={!ready || stale || !!busyId || starting || ((mode === 'profile' || mode === 'load' || (mode === 'kl' && !klFixed)) && !chosen.length) || (mode === 'tools' && !info?.tools.installed) || (mode === 'kl' && klRef === 'unchecked') || (klFixed && !klForm.text.trim())} onClick={() => start()}>{starting ? 'Starting…' : `Run on ${targetName}`}</button>
           {busyId && !going && <span className="small muted">A run is going; open it below to follow or stop it.</span>}
         </div>
         {going && <LiveRun run={going} onStop={cancel} />}

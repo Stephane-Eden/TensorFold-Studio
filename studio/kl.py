@@ -4,7 +4,11 @@ Each side writes a greedy reply with its 20 most likely tokens at each position.
 position where their tokens differ, both conditioned on exactly the same text, so their distributions compare
 there; after it the texts differ and the prompt stops. Making the candidate continue the reference's text after a
 difference would measure every position, but TensorFold 1.0.5 neither continues a final assistant message (it
-answers it as a finished turn) nor scores a prompt (`prompt_logprobs`); asked of Ash.
+answers it as a finished turn) nor scores a prompt.
+
+The other way, a fixed text (`score`, `pair_text`): both engines read the same text through `/v1/completions` with
+vLLM's `prompt_logprobs` (TensorFold from 1.0.8 on CUDA; its Metal and Python lines refuse it with a 400), and every
+position of it compares, none lost where the replies would part.
 
 Only the top 20 log-probabilities are given, so the divergence is a lower bound of the full KL, computed on what both
 lists establish (see `divergence`); whether the two distributions are the same is checked directly on the lists.
@@ -27,12 +31,15 @@ from . import httpread
 TOP = 20                # the most an OpenAI-compatible engine gives (TensorFold 1.0.5 on CUDA, vLLM, llama.cpp)
 MAX_TOKENS = 128        # reply length compared per prompt
 FLOOR = 1e-10
+TEXT_MAX = 20_000       # characters of a fixed text: prompt_logprobs prefill it whole, never from the cache
 
 
 @dataclass
 class Step:
     token: bytes
-    top: dict[bytes, float]          # token bytes -> probability
+    top: dict[bytes, float]          # token bytes (a fixed text: token ids) -> probability
+    ident: str | None = None         # a fixed text: the token's id, which both engines must read alike
+    said: dict[bytes, str] = field(default_factory=dict)    # a fixed text: each listed id's text
 
 
 @dataclass
@@ -86,6 +93,55 @@ def ask(client: httpx.Client, t: Target, messages: list[dict], max_tokens: int,
     steps.runtime = {**(body_out.get("tensorfold") or {}), **(body_out.get("speculative") or {})}
     if max_tokens and not steps:
         raise RuntimeError("the engine gave no log-probabilities (it needs `logprobs` on chat completions)")
+    return steps
+
+
+def completions_url(chat_url: str) -> str:
+    return chat_url.removesuffix("/chat/completions") + "/completions"
+
+
+def _scored(body: dict) -> list[Step]:
+    """vLLM's `prompt_logprobs`: one entry per prompt token, `null` for the first (nothing predicts it), then the
+    prompt token itself keyed by its id, followed by the best tokens, each with `logprob`, `rank`, `decoded_token`."""
+
+    rows = (body.get("choices") or [{}])[0].get("prompt_logprobs")
+    if not isinstance(rows, list):
+        raise RuntimeError("the engine gave no prompt_logprobs for the text")  # noqa: TRY004 - the run says it
+    out = []
+    for row in rows[1:]:
+        if not isinstance(row, dict) or not row:
+            raise RuntimeError("the engine gave a position of the text without its log-probabilities")
+        ident = next(iter(row))                           # the prompt token comes first
+        good = {str(k).encode(): v for k, v in row.items() if isinstance(v, dict) and isinstance(v.get("logprob"), int | float)}
+        out.append(Step(str((row[ident] or {}).get("decoded_token") or "").encode(),
+                        {k: math.exp(v["logprob"]) for k, v in good.items()}, str(ident),
+                        {k: str(v.get("decoded_token") or "") for k, v in good.items()}))
+    return out
+
+
+def score(client: httpx.Client, t: Target, text: str, cancel: threading.Event | None = None) -> list[Step]:
+    """Every position of ``text`` as the engine reads it, with the top log-probabilities there; a cancel ends the wait.
+    Of the run's extra fields only `draft` goes (a raw text has no chat template to turn thinking off in)."""
+
+    body = {"model": t.model, "prompt": text, "max_tokens": 1, "temperature": 0.0, "stream": False,
+            "prompt_logprobs": TOP, **{k: v for k, v in t.extra.items() if k == "draft"}}
+    got: list[httpx.Response] = []
+
+    def post() -> None:
+        with client.stream("POST", completions_url(t.url), json=body, headers=t.headers) as r:
+            got.append(r)
+            r.read()
+    httpread.until_cancelled(post, cancel, close=lambda: got and got[0].close(), name="kl-score")
+    r = got[0]
+    if r.status_code == 400:
+        raise RuntimeError(f"it does not score a text's positions (prompt_logprobs on /v1/completions): TensorFold "
+                           f"does from 1.0.8 on CUDA, not on Metal nor its Python line; vLLM does too. It said: "
+                           f"{r.text[:300]}")
+    if r.status_code >= 400:
+        raise RuntimeError(f"{r.status_code}: {r.text[:300]}")
+    out = r.json()
+    steps = Steps(_scored(out))
+    steps.runtime = {**(out.get("tensorfold") or {}), **(out.get("speculative") or {})}
     return steps
 
 
@@ -156,6 +212,33 @@ def pair(reference: list[Step], theirs: list[Step]) -> dict:
     return {"positions": len(kls), "tokens": len(reference), "kl": kls, "agree": agree, "equal": equal,
             "differs_at": differs_at, "identical": identical, "worst": rows[:5], "requests": 2, "unscored": unscored,
             "width": widths}                       # each scored position: the fewest alternatives either side gave
+
+
+def pair_text(reference: list[Step], theirs: list[Step]) -> dict:
+    """The same text read by both engines: every position compares, none dropped where replies would part. Both
+    must split it into the same tokens, or positions would not match."""
+
+    if [a.ident for a in reference] != [b.ident for b in theirs]:
+        raise RuntimeError(f"the two engines split the text into different tokens ({len(reference) + 1} and "
+                           f"{len(theirs) + 1}, or other ids): not the same tokenizer, so positions do not match")
+    kls, agree, equal, rows, widths, unscored = [], 0, 0, [], [], 0
+    for k, (a, b) in enumerate(zip(reference, theirs, strict=True), start=1):
+        if not usable(a.top) or not usable(b.top):
+            unscored += 1
+            continue
+        d = divergence(a.top, b.top)
+        kls.append(d)
+        widths.append(min(len(a.top), len(b.top)))
+        best_a, best_b = max(a.top, key=a.top.get), max(b.top, key=b.top.get)
+        agree += best_a == best_b
+        equal += same_distribution(a.top, b.top)
+        # the text's token there, and what each engine found most likely in its place
+        rows.append({"at": k, "kl": d, "token": a.token.decode(errors="replace"), "ref": a.said.get(best_a, ""),
+                     "cand": b.said.get(best_b, ""), "same_top": best_a == best_b})
+    rows.sort(key=lambda w: -w["kl"])
+    return {"positions": len(kls), "tokens": len(reference) + 1, "kl": kls, "agree": agree, "equal": equal,
+            "differs_at": None, "identical": bool(kls) and equal == len(kls) and not unscored, "worst": rows[:5],
+            "requests": 2, "unscored": unscored, "width": widths}
 
 
 def compare(client: httpx.Client, ref: Target, cand: Target, messages: list[dict], *, max_tokens: int = MAX_TOKENS,

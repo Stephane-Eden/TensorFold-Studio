@@ -34,6 +34,10 @@ def kl_line(run: dict) -> str:
         load = (f", the candidate under {run['kl_load']} requests at once ({done.get('ok', 0)} background replies, "
                 f"{done.get('failed', 0)} refused"
                 + (f"; all {run['kl_load']} in flight {full * 100:.0f}% of the time" if full is not None else "") + ")")
+    if run.get("kl_text") is not None:             # one fixed text, read by both: every position, no replies
+        return (f"Against {against}{load}: mean KL {k['mean_kl']:.4f} nats (p99 {k['p99_kl']:.4f}, max "
+                f"{k['max_kl']:.4f}) over {k['positions']:,} positions of a fixed text; same top token at "
+                f"{k['same_top'] * 100:.1f}%, the same distribution at {k.get('same_distribution', 0) * 100:.1f}%.")
     return (f"Against {against}{load}: mean KL {k['mean_kl']:.4f} nats (p99 {k['p99_kl']:.4f}, max {k['max_kl']:.4f}) "
             f"over {k['positions']:,} positions of {k['prompts']} prompts; same top token at {k['same_top'] * 100:.1f}%, "
             f"replies identical for {k['identical'] * 100:.0f}% of prompts.")
@@ -137,8 +141,9 @@ def findings(run: dict) -> list[str]:
         width = k.get("width", k.get("top", 20))
         if k.get("same_distribution") == 1:
             out.append(f"Every compared position gave the same {width} most likely tokens with the same probabilities, "
-                       "checked token by token: the candidate's distributions match the reference's exactly where "
-                       "both wrote the same text.")
+                       "checked token by token: the candidate's distributions match the reference's exactly "
+                       + ("at every position of the text." if run.get("kl_text") is not None
+                          else "where both wrote the same text."))
         elif k.get("same_distribution") is not None:
             out.append(f"{k['same_distribution'] * 100:.1f}% of the compared positions gave the same {width} tokens "
                        "with the same probabilities.")
@@ -148,9 +153,14 @@ def findings(run: dict) -> list[str]:
                        "the width.")
         if k.get("worst") and k["worst"][0]["kl"] > 0:
             w = k["worst"][0]
-            out.append(f"The largest divergence, {w['kl']:.4f} nats, was at token {w['at']} of {w['prompt']} "
+            where = f"at {w['token']!r}, token {w['at']} of the text" if run.get("kl_text") is not None and \
+                w.get("token") is not None else f"at token {w['at']} of {w['prompt']}"
+            out.append(f"The largest divergence, {w['kl']:.4f} nats, was {where} "
                        f"(reference {w['ref']!r}, candidate {w['cand']!r}).")
-        out.append("Positions are compared up to the first token where the two replies differ: after it they no longer "
+        out.append("Every position of the fixed text is compared: both engines read the same tokens, so none is left "
+                   "out after a difference. The divergence is estimated on the top 20 log-probabilities."
+                   if run.get("kl_text") is not None else
+                   "Positions are compared up to the first token where the two replies differ: after it they no longer "
                    "write on the same text. The divergence is estimated on the top 20 log-probabilities.")
     tl = run.get("tools")
     if run.get("mode") == "tools" and tl:
@@ -511,7 +521,8 @@ def html_report(run: dict) -> str:
         k = run["kl"]
         figs += [("Mean KL", f"{k['mean_kl']:.4f} nats", ""), ("KL p99", f"{k['p99_kl']:.4f}", ""),
                  ("Same top token", f"{k['same_top'] * 100:.1f}%", ""),
-                 ("Identical replies", f"{k['identical'] * 100:.0f}%", ""), ("Positions", f"{k['positions']:,}", "")]
+                 ("Same distributions", f"{k.get('same_distribution', 0) * 100:.1f}%", "") if run.get("kl_text") is not None
+                 else ("Identical replies", f"{k['identical'] * 100:.0f}%", ""), ("Positions", f"{k['positions']:,}", "")]
     elif run.get("mode") == "tools" and run.get("tools"):
         tl = run["tools"]
         figs += [("Score", f"{tl.get('final_score')} of 100", ""), ("Points", f"{tl.get('points')}/{tl.get('max_points')}", ""),

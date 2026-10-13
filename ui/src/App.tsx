@@ -40,6 +40,12 @@ export default function App() {
   const [decodeHistory, setDecodeHistory] = useState<number[]>([])     // kept here so it survives a visit to another screen
   const [toasts, setToasts] = useState<Toast[]>([])
   const [palette, setPalette] = useState(false)
+  // the menu folded to its icons, remembered in this browser
+  const [folded, setFolded] = useState(() => { try { return localStorage.getItem('tfs-sidebar') === 'folded' } catch { return false } })
+  const fold = useCallback(() => setFolded((f) => {
+    try { localStorage.setItem('tfs-sidebar', f ? 'full' : 'folded') } catch { /* no storage */ }
+    return !f
+  }), [])
   // the look applies at once and is remembered in this browser, then saved with the other settings
   // `?theme=light|dark|system` in the address shows that look for this visit only, for screenshots and links
   const pinned = (['light', 'dark', 'system'] as const).find((t) => t === new URLSearchParams(location.search).get('theme')) ?? null
@@ -109,18 +115,19 @@ export default function App() {
     mq.addEventListener('change', apply)
     return () => mq.removeEventListener('change', apply)
   }, [theme])
-  // keys: ⌘K or Ctrl+K opens the palette, 1 to 9 switch screens, / goes to the chat composer
+  // keys: ⌘K or Ctrl+K opens the palette, 1 to 9 switch screens, / goes to the chat composer, [ folds the menu
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette((p) => !p); return }
       if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return
       const n = Number(e.key)
       if (n >= 1 && n <= ROUTES.length) { location.hash = `#${ROUTES[n - 1]}` }
+      else if (e.key === '[') fold()
       else if (e.key === '/') { e.preventDefault(); location.hash = '#chat'; setTimeout(() => dispatchEvent(new CustomEvent('tfs:focus-composer')), 0) }
     }
     addEventListener('keydown', on)
     return () => removeEventListener('keydown', on)
-  }, [])
+  }, [fold])
 
   // the look, applied and remembered for the next load (index.html reads it before the first paint)
   const rememberTheme = useCallback((t: Settings['theme']) => {
@@ -144,9 +151,9 @@ export default function App() {
   const stale = studioDown && missed >= 3 && (age == null || age >= 10)
   const ctx = { machine, engine, settings, refreshEngine, refreshSettings, refreshBrands, saveSettings, toast, openPalette, stale, decodeHistory }
   return (
-    <div className="app">
+    <div className={folded ? 'app folded' : 'app'}>
       <a className="skip" href="#main" onClick={(e) => { e.preventDefault(); mainRef.current?.focus() }}>Skip to content</a>
-      <Sidebar route={route} engine={engine} machine={machine} onPalette={openPalette} />
+      <Sidebar route={route} engine={engine} machine={machine} onPalette={openPalette} folded={folded} onFold={fold} />
       <main id="main" ref={mainRef} tabIndex={-1} className={stale ? 'stale' : undefined}>
         {needsToken && <div className="notice bad">This Studio needs its access token. <button className="btn sm" onClick={() => askTokenAgain().then((t) => { if (t) refreshEngine() })}>Enter the token</button></div>}
         {error && <div className="notice bad">{error}</div>}

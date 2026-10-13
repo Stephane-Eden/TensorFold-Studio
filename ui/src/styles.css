@@ -51,6 +51,20 @@ aside{background:var(--canvas);border-right:1px solid var(--line);padding:18px 1
 .palette-hint{display:flex;align-items:center;gap:8px;margin:8px 0 0;padding:7px 10px;border:1px dashed var(--line);border-radius:var(--radius-s);background:transparent;color:var(--ink3);font-size:12.5px;width:100%;text-align:left;white-space:nowrap}
 .palette-hint:hover{border-color:var(--ink3);color:var(--ink2)}
 .palette-hint kbd{margin-left:auto;border:1px solid var(--line);border-radius:5px;padding:0 5px;font-size:11px;line-height:16px}
+.palette-hint svg,.fold svg{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.fold{display:flex;align-items:center;gap:8px;margin:2px 0 0;padding:6px 10px;border:0;border-radius:var(--radius-s);background:transparent;color:var(--ink3);font-size:12.5px;width:100%;text-align:left;white-space:nowrap}
+.fold:hover{background:var(--sunken);color:var(--ink2)}
+.fold kbd{margin-left:auto;border:1px solid var(--line);border-radius:5px;padding:0 5px;font-size:11px;line-height:16px}
+.fold svg{transition:transform .15s}
+/* folded: the icons alone, each name kept for screen readers and as a tooltip */
+.app.folded{grid-template-columns:64px minmax(0,1fr)}
+.app.folded aside{padding:18px 10px 14px;align-items:stretch}
+.app.folded .brand{justify-content:center;padding:2px 0 16px}
+.app.folded aside .lbl{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.app.folded .nav a,.app.folded .palette-hint,.app.folded .fold{justify-content:center;padding:9px 0}
+.app.folded .nav a kbd,.app.folded .palette-hint kbd,.app.folded .fold kbd{display:none}
+.app.folded .fold svg{transform:rotate(180deg)}
+.folded-status{align-items:center;padding-top:14px}
 .status{margin-top:auto;border-top:1px solid var(--line);padding-top:12px;font-size:12.5px;color:var(--ink2);display:flex;flex-direction:column;gap:6px}
 .status .row{display:flex;align-items:center;gap:8px;padding:2px 6px}
 .status b{color:var(--ink);font-weight:600;overflow-wrap:anywhere}
@@ -215,6 +229,13 @@ main.stale>*:not(.stale-banner):not(.notice){opacity:.6;filter:saturate(.35);tra
 .chat .bar .pill b{font-weight:700}
 .chat .bar .pill.ttft{background:var(--good-soft);color:var(--good);border-color:color-mix(in srgb,var(--good) 35%,transparent)}
 .chat .bar .pill.tps{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line)}
+.chat .bar .pill.drafts{background:var(--sunken);color:var(--ink2);border-color:var(--line)}
+.chat .bar .pill.drafts b{color:var(--ink)}
+.chat .bar .speed.now .pill{opacity:.85}
+.websources{margin-top:6px;color:var(--ink2)}
+.websources summary{cursor:pointer}
+.websources ul{margin:4px 0 0;padding-left:18px}
+.websources a{overflow-wrap:anywhere}
 .msgs{flex:1;overflow:auto;padding:20px 20px 10px;display:flex;flex-direction:column;gap:18px;min-height:200px}
 .thread{width:100%;max-width:780px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
 .msg{line-height:1.55;overflow-wrap:anywhere}
@@ -271,7 +292,7 @@ main.stale>*:not(.stale-banner):not(.notice){opacity:.6;filter:saturate(.35);tra
 /* ---- responsive -------------------------------------------------------------------------- */
 @media (max-width:1100px){.mrow .d{display:none}.mrow{grid-template-columns:minmax(0,1fr) 70px 130px 100px}}
 @media (max-width:980px){.models,.two,.addresses,.live{grid-template-columns:1fr}.live .side{border-left:0;border-top:1px solid var(--line)}.panel{position:static}.chatpage{height:auto}.chat{min-height:60vh}}
-@media (max-width:760px){.app{grid-template-columns:1fr}aside{position:static;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px;padding:10px}.brand{padding:0 6px 0 0}.nav{flex-direction:row;flex-wrap:wrap}.nav a kbd,.palette-hint,.status{display:none}main{padding:16px}.mrow{grid-template-columns:1fr auto}.mrow .v,.mrow .act{display:none}.mrow .chipcol{justify-self:end;align-items:flex-end}.head{flex-direction:column}}
+@media (max-width:760px){.app,.app.folded{grid-template-columns:1fr}.fold{display:none}.app.folded aside .lbl{position:static;width:auto;height:auto;margin:0;clip:auto}.folded-status{display:none}aside{position:static;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px;padding:10px}.brand{padding:0 6px 0 0}.nav{flex-direction:row;flex-wrap:wrap}.nav a kbd,.palette-hint,.status{display:none}main{padding:16px}.mrow{grid-template-columns:1fr auto}.mrow .v,.mrow .act{display:none}.mrow .chipcol{justify-self:end;align-items:flex-end}.head{flex-direction:column}}
 
 /* Bench */
 .bench-new{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}

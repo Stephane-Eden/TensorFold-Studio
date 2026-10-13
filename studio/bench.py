@@ -57,8 +57,9 @@ MODES = {"quick": "Quick score: three prompts (English, code, French), about hal
          "load": "Load sweep: waves of 1, 2, 4… requests at once, up to the number chosen, for total and per-request speed",
          "quality": "Quality: 228 items scored strictly (arithmetic, knowledge, instructions, corrected facts in long texts)",
          "tools": "Tool calls: tool-eval-bench's scripted conversations with mock tools, scored pass, partial or fail",
-         "kl": "KL divergence: each prompt's top-20 log-probabilities against a reference, position by position, where both "
-               "wrote the same text"}
+         "kl": "KL divergence: top-20 log-probabilities against a reference, position by position, where both wrote the "
+               "same reply or over every position of a fixed text"}
+TEXT_SUITE = {"id": "text", "name": "Fixed text"}    # a KL run on a text given: its one "prompt"
 PARTIAL_BELOW = 0.98                      # readings covering less of a run: its energy figures are lower bounds
 LEVELS = (1, 2, 4, 8, 16, 32)             # requests at once in a load sweep
 LOAD_MIN_REQUESTS = 8                     # each level sends at least this many, in waves of its size
@@ -646,25 +647,32 @@ class Bench:
               engine_name: str | None = None, max_context: int | None = None,
               target: tuple[str, str | None, str | None] | None = None, drafts: bool = True,
               tags: dict | None = None, max_concurrency: int | None = None, full: bool = False,
-              reference: tuple[str, str | None, str] | None = None, kl_load: int = 0) -> dict:
-        """``target`` is another engine's (base URL, key, model); without it, the engine this Studio serves.
+              reference: tuple[str, str | None, str] | None = None, kl_load: int = 0,
+              kl_text: str | None = None) -> dict:
+        """``target`` is another engine's (base URL, key, model, and headers of its own, such as another Studio's
+        token, as a fourth part); without it, the engine this Studio serves.
         ``drafts`` False sends every request with `"draft": false` (no exactness check then: there is nothing to
         compare against); ``tags`` are kept on the run, such as the configuration comparison it belongs to.
         A KL run compares with ``reference`` (an engine's base URL, key, model), or without one with the same engine
-        and drafts off; ``kl_load`` keeps that many requests going while the candidate answers."""
+        and drafts off; ``kl_load`` keeps that many requests going while the candidate answers. ``kl_text`` compares
+        both on that text, every position of it scored (`prompt_logprobs`), instead of on their replies to the suites."""
 
         with self._starting:
             return self._start(mode, suites, exactness, engine_name, max_context, target, drafts, tags,
-                               max_concurrency, full, kl_load, reference)
+                               max_concurrency, full, kl_load, reference, kl_text)
 
     def _start(self, mode: str, suites: list[str] | None, exactness: bool, engine_name: str | None,
                max_context: int | None, target: tuple[str, str | None, str | None] | None = None,
                drafts: bool = True, tags: dict | None = None, max_concurrency: int | None = None,
-               full: bool = False, kl_load: int = 0, reference: tuple[str, str | None, str] | None = None) -> dict:
+               full: bool = False, kl_load: int = 0, reference: tuple[str, str | None, str] | None = None,
+               kl_text: str | None = None) -> dict:
         if mode not in MODES:
             raise ValueError(f"mode must be one of {', '.join(MODES)}")
         if self.busy():
             raise RuntimeError("a run is already going; cancel it or wait")
+        if kl_text is not None and (mode != "kl" or not isinstance(kl_text, str) or not kl_text.strip()
+                                    or len(kl_text) > kl.TEXT_MAX):
+            raise ValueError(f"a fixed text is for a KL run, 1 to {kl.TEXT_MAX:,} characters")
         self._kl_reference = reference          # only once no run is going: a refused start leaves the running one's
         # the built-in suites, then the user's; a profile without a choice runs the built-in ones only
         data = {**self.suites, "suites": self.suites["suites"] + [custom_suites.as_bench(c) for c in self.custom.list()]}
@@ -680,12 +688,15 @@ class Bench:
             cats = list(qdata["categories"])
             if suites and not set(suites) <= set(cats):
                 raise ValueError(f"unknown quality categories: {', '.join(sorted(set(suites) - set(cats)))}")
-        if mode in ("profile", "load", "kl") and not suites:
+        if kl_text is not None:
+            suites = None                        # the text replaces the suites
+        elif mode in ("profile", "load", "kl") and not suites:
             suites = [x["id"] for x in self.suites["suites"]]
         known = {s["id"] for s in data["suites"]}
         if suites and mode != "quality" and not set(suites) <= known:
             raise ValueError(f"unknown suites: {', '.join(sorted(set(suites) - known))}")
-        base, key, model = target or self.target()
+        base, key, model, *more = target or self.target()
+        self._target_headers = more[0] if more else {}       # kept here, never with the run: it may hold a token
         # the drafts-off check is TensorFold's own (`"draft": false`); another engine is compared by text instead
         # the served engine is whatever Settings point at: its name says whether it is TensorFold
         tensorfold = engine_name.startswith("TensorFold") if engine_name else target is None
@@ -694,8 +705,9 @@ class Bench:
         if not model:
             raise RuntimeError("no model is being served; start one from Models")
         work = (quality.items(qdata, self.suites["passages"]["water"] + "\n\n", suites) if mode == "quality"
+                else [(TEXT_SUITE, {"id": "text", "text": kl_text})] if kl_text is not None
                 else [] if mode in ("prefill", "tools") else pick(data, "profile" if mode in ("load", "kl") else mode, suites))
-        order = [x["id"] for x in data["suites"]]
+        order = [x["id"] for x in data["suites"]] + [TEXT_SUITE["id"]]
         chosen = (sorted({w["category"] for w in work}, key=list(qdata["categories"]).index) if mode == "quality"
                   else sorted({s["id"] for s, _ in work}, key=order.index))
         version = {"version": self.suites.get("version"), "digest": self.suites["digest"]}
@@ -704,6 +716,8 @@ class Bench:
             version["custom"] = custom
         if mode == "quality":
             version = {"quality": qdata["version"], "digest": qdata["digest"]}
+        if kl_text is not None:
+            version = {"kl_text": len(kl_text), "digest": text_digest(kl_text)}
         if mode == "tools":
             tv = tooleval.version(tools_exe or "")
             self._tools_exe = tools_exe          # kept here, not in the run: its path holds the user's name
@@ -724,6 +738,7 @@ class Bench:
                "target": {"kind": "address" if target else "served", "url": base}, "drafts": drafts,
                **({"tags": tags} if tags else {}),
                "suite_names": ({c: qdata["categories"][c]["name"] for c in chosen} if mode == "quality" else
+                               {TEXT_SUITE["id"]: TEXT_SUITE["name"]} if kl_text is not None else
                                {s["id"]: s["name"] for s in data["suites"] if s["id"] in chosen}),
                "protocol": PROTOCOL, "suites_version": version,
                "thinking": None, "studio": __version__, "python": platform.python_version(),
@@ -738,7 +753,8 @@ class Bench:
                "max_concurrency": levels[-1] if mode == "load" else None,
                **({"tools_full": full} if mode == "tools" else {}),
                **({"kl_reference": ({"kind": "address", "url": self._kl_reference[0], "model": self._kl_reference[2]}
-                                    if self._kl_reference else {"kind": "drafts-off"}), "kl_load": kl_load}
+                                    if self._kl_reference else {"kind": "drafts-off"}), "kl_load": kl_load,
+                   "kl_text": kl_text}
                   if mode == "kl" else {}),
                "memory": None, "hardware": None, "summary": None, "error": None,
                "window": None, "prefill_overhead_s": None, "prefill_repeated": False, "tools": None,
@@ -762,7 +778,7 @@ class Bench:
         return True
 
     def _go(self, run: dict, work: list[tuple[dict, dict]], base: str, key: str | None, sizes: list[int]) -> None:
-        headers = {"Authorization": f"Bearer {key}"} if key else {}
+        headers = {**({"Authorization": f"Bearer {key}"} if key else {}), **getattr(self, "_target_headers", {})}
         results: list[dict] = []
         try:
             try:
@@ -983,8 +999,12 @@ class Bench:
                             raise InterruptedError
                         run["progress"]["current"] = f"{side}: {suite['name']}: {prompt['id']}"
                         self.store.save_run(run)
-                        steps = kl.ask(c, target, prompt["messages"], min(prompt.get("max_tokens", 300), kl.MAX_TOKENS),
-                                       cancel=self._cancel)
+                        try:
+                            steps = (kl.score(c, target, prompt["text"], cancel=self._cancel) if "text" in prompt else
+                                     kl.ask(c, target, prompt["messages"], min(prompt.get("max_tokens", 300), kl.MAX_TOKENS),
+                                            cancel=self._cancel))
+                        except RuntimeError as exc:
+                            raise RuntimeError(f"the {side} engine: {exc}") from exc
                         if side == "reference":
                             replies.append(steps)
                             if ref_at is None:            # the same engine asked for drafts off: did it say so?
@@ -993,7 +1013,7 @@ class Bench:
                                 ref["drafts_off"] = confirmed if ref.get("drafts_off") is None else \
                                     ref["drafts_off"] and confirmed
                         else:
-                            p = kl.pair(replies[i], steps)
+                            p = kl.pair_text(replies[i], steps) if "text" in prompt else kl.pair(replies[i], steps)
                             p["prompt"] = f"{suite['id']}/{prompt['id']}"
                             r = {"suite": suite["id"], "prompt": prompt["id"], "draft": True, "error": None,
                                  "m": {"tokens": p["tokens"], "tps": None, "ttft": None, "ttft_answer": None,

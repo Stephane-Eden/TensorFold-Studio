@@ -67,7 +67,7 @@ export function SpeedupCheck({ id, model, onDone, onClose, toast, written }: { i
   const cancel = async () => { stop.current = true; going.current = false; await api.replayCancel().catch(() => {}); setStep(0); setProg(null); toast('Stopped') }
   return (
     <div className="replayform">
-      <div className="membar-head"><b className="small">Check the speed-up on this conversation</b><button className="btn sm quiet" onClick={onClose}>Close</button></div>
+      <div className="membar-head"><b className="small">Verify speed-up &amp; exactness on this conversation</b><button className="btn sm quiet" onClick={onClose}>Close</button></div>
       <p className="small muted">The questions of this conversation are sent twice to {model || 'the served model'}: once with the speed-up, once without. The two answers are then put side by side. If the speed-up is exact, they are the same, token for token; the comparison also shows how much faster it was.</p>
       {(() => {
         const known = written.filter((w): w is NonNullable<Written> => !!w)

@@ -18,7 +18,12 @@ const LABELS: Record<Route, string> = { home: 'Home', chat: 'Chat', teach: 'Teac
 
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
 
-export default function Sidebar({ route, engine, machine, onPalette }: { route: Route; engine: EngineInfo | null; machine: Machine | null; onPalette: () => void }) {
+const FOLD = 'M15 6l-6 6 6 6'
+const COMMANDS = 'M10 6H8a2 2 0 1 0 2 2zM10 6v12M10 18H8a2 2 0 1 1 2-2zM14 6h2a2 2 0 1 1-2 2zM14 6v12M14 18h2a2 2 0 1 0-2-2zM10 12h4'
+
+/** The menu, full or folded to its icons (`folded`): folded, each item keeps its name as a tooltip and for screen
+ * readers, and the AI's state shows as its dot alone. */
+export default function Sidebar({ route, engine, machine, onPalette, folded, onFold }: { route: Route; engine: EngineInfo | null; machine: Machine | null; onPalette: () => void; folded: boolean; onFold: () => void }) {
   const [access, setAccess] = useState<Access | null>(null)
   useEffect(() => {
     const load = () => api.access().then(setAccess).catch(() => {})
@@ -35,28 +40,34 @@ export default function Sidebar({ route, engine, machine, onPalette }: { route: 
   const name = engine?.model_name ?? engine?.model
   const n = engine?.connections ?? 0
   const logo = <ModelLogo names={[engine?.model_name, engine?.model]} size="xs" />
+  const lineText = st === 'running' ? `${name} is ready` : st === 'starting' ? `Starting ${name ?? '…'}` : st === 'unauthorized' ? 'The AI refuses the key'
+    : st === 'failed' ? 'The AI stopped with a problem' : engine?.managed === false ? 'No AI at that address' : 'Nothing running'
   const line = st === 'running' ? <>{logo}<b>{name}</b> is ready</> : st === 'starting' ? <>{logo}Starting <b>{name ?? '…'}</b></>
     : st === 'unauthorized' ? <>The AI refuses the key</> : st === 'failed' ? <>The AI stopped with a problem</> : engine?.managed === false ? <>No AI at that address</> : <>Nothing running</>
   return (
     <aside>
-      <div className="brand">
+      <div className="brand" title={folded ? 'TensorFold Studio' : undefined}>
         <img src="/logo.png" alt="" />
-        <div><span className="wordmark">TensorFold</span><small>Studio</small></div>
+        <div className="lbl"><span className="wordmark">TensorFold</span><small>Studio</small></div>
       </div>
       <nav className="nav" aria-label="Sections">
         {ROUTES.map((r, i) => (
-          <a key={r} href={`#${r}`} aria-current={route === r ? 'page' : undefined}>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d={ICONS[r]} /></svg>{LABELS[r]}<kbd>{i + 1}</kbd>
+          <a key={r} href={`#${r}`} aria-current={route === r ? 'page' : undefined} title={folded ? `${LABELS[r]} (${i + 1})` : undefined}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d={ICONS[r]} /></svg><span className="lbl">{LABELS[r]}</span><kbd>{i + 1}</kbd>
           </a>
         ))}
       </nav>
-      <button type="button" className="palette-hint" onClick={onPalette}>Commands<kbd>{isMac ? '⌘' : 'Ctrl'} K</kbd></button>
-      <div className="status">
+      <button type="button" className="palette-hint" onClick={onPalette} title={folded ? `Commands (${isMac ? '⌘' : 'Ctrl'} K)` : undefined}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d={COMMANDS} /></svg><span className="lbl">Commands</span><kbd>{isMac ? '⌘' : 'Ctrl'} K</kbd></button>
+      <button type="button" className="fold" onClick={onFold} aria-expanded={!folded} title={`${folded ? 'Show the menu' : 'Fold the menu to its icons'} ([)`}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d={FOLD} /></svg><span className="lbl">Fold the menu</span><kbd>[</kbd></button>
+      {folded && <div className="status folded-status" title={`${lineText}${reach ? `. ${reach.text}` : ''}`}><span className={`dot ${dot}`} /><span className="sr-only">{lineText}</span></div>}
+      {!folded && <div className="status">
         <div className="row"><span className={`dot ${dot}`} /><span>{line}</span></div>
         {st === 'running' && <div className="row"><span style={{ width: 8 }} /><span className="small">{n ? `Answering ${n} ${n === 1 ? 'conversation' : 'conversations'}` : 'Idle'}{engine?.decode_tps ? `, ${Math.round(engine.decode_tps)} tokens a second` : ''}</span></div>}
         {reach && <div className="row"><span className={`dot ${reach.cls}`} title="Who can reach the Studio and the engine" /><span className="small">{reach.text}</span></div>}
         <div className="row faint"><span style={{ width: 8 }} /><span>TensorFold {machine?.tensorfold_version ?? 'not installed'}, Studio {machine?.studio_version ?? ''}</span></div>
-      </div>
+      </div>}
     </aside>
   )
 }
