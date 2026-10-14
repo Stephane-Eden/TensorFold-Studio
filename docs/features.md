@@ -1,6 +1,6 @@
 # TensorFold Studio: what it does today
 
-A short map of the Studio as of 13 October 2026, by screen, with the module behind each part and what is still open.
+A short map of the Studio as of 14 October 2026, by screen, with the module behind each part and what is still open.
 The engine questions and bug reports are in `questions-for-ash.md`.
 
 ## Two layers, and Home
