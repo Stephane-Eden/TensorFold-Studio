@@ -119,9 +119,12 @@ comparison names its two sides the same way.
 - This machine and the others in one view, each read every 5 s from its own Studio with its token; the tokens stay
   in this Studio (`fleet.json`, readable by this user only), never in the page. Per machine: what it serves, speed
   now, connections, KV cache, context, prompt cache, memory by holder, warnings, versions, how long the read took.
-- Add a machine without a restart: a Test lists six checks (answers, is a Studio, token, another machine, same
-  version, its engine) as passed, warned, failed or skipped; the machine is added only when none fails. Change its
-  token, remove it, open its Studio. Each card says when the machine last served.
+- Add a machine without a restart: a Test lists seven checks (answers, is a Studio, token, another machine, same
+  Studio version, same TensorFold version, its engine) as passed, warned, failed or skipped; the machine is added
+  only when none fails. Change its token, remove it, open its Studio. Each card says when the machine last served.
+- Another TensorFold release than this machine's (14 Oct) is a warning on the Test, on the machine's card and in the
+  Bench's KL when that machine is the reference: since 1.0.10 Nemotron on CUDA can part from 1.0.9 at a near tie, so
+  a comparison across two releases measures the release as well as the machine.
 - Open: speed-up groups as one unit, power (wake-on-LAN, shutdown).
 
 ## Bench (`bench.py`, `report.py`, `compare.py`, `series.py`, `suites.py`, `quality.py`, `power.py`)

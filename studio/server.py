@@ -1303,14 +1303,16 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
     @app.post("/api/fleet/test")
     def fleet_test(body: dict[str, Any]):
         url, token = fleet_body(body)
-        return fleet.test(url, token, own_hostname=detect().hostname, own_version=__version__)
+        return fleet.test(url, token, own_hostname=detect().hostname, own_version=__version__,
+                          own_engine_version=detect().tensorfold_version)
 
     @app.post("/api/fleet")
     def fleet_add(body: dict[str, Any]):
         """Added only once its checks pass, and seen at once: no restart."""
 
         url, token = fleet_body(body)
-        result = fleet.test(url, token, own_hostname=detect().hostname, own_version=__version__)
+        result = fleet.test(url, token, own_hostname=detect().hostname, own_version=__version__,
+                            own_engine_version=detect().tensorfold_version)
         if not result["ok"]:
             failed = next(c for c in result["checks"] if c["status"] == "fail")
             raise HTTPException(409, f"{failed['label']}: {failed['detail']}")

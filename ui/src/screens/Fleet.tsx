@@ -5,6 +5,7 @@ import { ago } from './MonitorUsage'
 import { useWorking } from '../working'
 import { Ask, AskName } from '../ask'
 import { ModelLogo } from '../brandLogo'
+import { engineSkew } from '../version'
 
 const MARK: Record<FleetCheck['status'], string> = { pass: '✓', warn: '!', fail: '✗', skip: '–' }
 
@@ -22,7 +23,7 @@ function MiniMemory({ m }: { m: NonNullable<NonNullable<FleetMachine['engine']>[
   )
 }
 
-function MachineCard({ m, onRemove, onToken, onOpen, working, ask, setAsk }: { m: FleetMachine; onRemove: () => void; onToken: (t: string) => void; onOpen: () => void; working: string | null; ask: 'remove' | 'token' | null; setAsk: (a: 'remove' | 'token' | null) => void }) {
+function MachineCard({ m, here, onRemove, onToken, onOpen, working, ask, setAsk }: { m: FleetMachine; here: string | null | undefined; onRemove: () => void; onToken: (t: string) => void; onOpen: () => void; working: string | null; ask: 'remove' | 'token' | null; setAsk: (a: 'remove' | 'token' | null) => void }) {
   const e = m.engine
   const st = !m.reachable ? 'unreachable' : e?.status ?? 'unknown'
   const chip = st === 'running' ? <span className="chip run">Serving</span> : st === 'starting' ? <span className="chip tight">Starting</span>
@@ -54,6 +55,7 @@ function MachineCard({ m, onRemove, onToken, onOpen, working, ask, setAsk }: { m
         {e?.memory && <MiniMemory m={e.memory} />}
         {!!e?.findings.length && <ul className="ffind">{e.findings.map((f, i) => <li key={i} className={f.level}>{f.title}</li>)}</ul>}
         <div className="small faint" style={{ marginTop: 10 }}>TensorFold {m.tensorfold_version ?? 'not installed'}, Studio {m.studio_version}{!m.self && m.ms != null ? `, read in ${m.ms} ms` : ''}</div>
+        {!m.self && engineSkew(here, m.tensorfold_version) && <p className="small warn-text" style={{ margin: '6px 0 0' }}>Another TensorFold release than this machine's ({here}): a reply can part from it at a near tie, so a KL or exactness check across the two compares releases as well as machines. Update both to the same release first.</p>}
       </>}
       {!m.self && ask === 'remove' && <Ask danger yes="Remove it" busy={working === `remove:${m.id}`} onYes={onRemove} onNo={() => setAsk(null)} text={<>Remove <b>{m.name}</b> from this fleet? Its Studio and its AI keep running; only this list forgets it.</>} />}
       {!m.self && ask === 'token' && <AskName text={`${m.name}'s Studio token`} initial="" ok="Save the token" onOk={onToken} onCancel={() => setAsk(null)} />}
@@ -126,7 +128,7 @@ export default function Fleet({ toast }: Ctx) {
       {err && <div className="notice bad">{err}</div>}
       {machines && <p className="small muted num" style={{ marginTop: -6 }}>{machines.length} {machines.length === 1 ? 'machine' : 'machines'}, {serving.length} with an AI running{total ? `, ${Math.round(total)} tokens a second being written in all` : ''}.</p>}
       <div className="fgrid">
-        {machines?.map((m) => <MachineCard key={m.id} m={m} working={working} ask={ask?.id === m.id ? ask.kind : null} setAsk={(k) => setAsk(k ? { id: m.id, kind: k } : null)} onRemove={() => remove(m)} onToken={(t) => retoken(m, t)} onOpen={() => openIt(m)} />)}
+        {machines?.map((m) => <MachineCard key={m.id} m={m} here={machines.find((x) => x.self)?.tensorfold_version} working={working} ask={ask?.id === m.id ? ask.kind : null} setAsk={(k) => setAsk(k ? { id: m.id, kind: k } : null)} onRemove={() => remove(m)} onToken={(t) => retoken(m, t)} onOpen={() => openIt(m)} />)}
       </div>
       <div className="card" style={{ marginTop: 14, maxWidth: 720 }}>
         <b>Add a machine</b>

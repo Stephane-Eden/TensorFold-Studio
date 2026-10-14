@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, num, type BenchRun, type FleetMachine } from '../api'
+import { engineSkew } from '../version'
 
 // null: the same engine with drafts off; 'unchecked': an address chosen but not checked yet (the run waits);
 // a Fleet machine goes by its id, this Studio reaching its engine with the key or token it keeps
@@ -8,11 +9,17 @@ export type KlReference = { url: string; key?: string; model: string } | { peer:
 // the text a fixed-text run reads unless the person writes another
 export const KL_TEXT = 'The lighthouse stood at the end of a narrow spit of rock, and for forty years the same family had kept its lamp burning. Every evening the keeper climbed the hundred and twelve steps, trimmed the wick, wound the clock that turned the lens, and wrote the weather in a book. Ships passing in the night never saw him, only the light, sweeping once every ten seconds across the water. When the lamp was finally made automatic, the last keeper left the book on the table, open at a page that read: wind from the west, sea calm, all well.'
 
+/** The Fleet's machines, this one included, read once ``on`` is true (null until then, or while they are read). */
+function useFleet(on: boolean): FleetMachine[] | null {
+  const [all, setAll] = useState<FleetMachine[] | null>(null)
+  useEffect(() => { if (on && all === null) api.fleet().then((f) => setAll(f.machines)).catch(() => setAll([])) }, [on, all])
+  return all
+}
+
 /** The other machines of the Fleet, read once ``on`` is true (null until then, or while they are read). */
 export function useFleetPeers(on: boolean): FleetMachine[] | null {
-  const [peers, setPeers] = useState<FleetMachine[] | null>(null)
-  useEffect(() => { if (on && peers === null) api.fleet().then((f) => setPeers(f.machines.filter((m) => !m.self))).catch(() => setPeers([])) }, [on, peers])
-  return peers
+  const all = useFleet(on)
+  return all && all.filter((m) => !m.self)
 }
 
 /** "Typed by hand" or one of the Fleet's machines, for another engine's address. */
@@ -44,7 +51,10 @@ export const klText = (s: KlState) => (s.fixed ? s.text : undefined)
 /** The KL run's options: what the candidate is compared with, and whether it answers under load. */
 export function KlOptions({ load, setLoad, state, setState }: { load: number; setLoad: (n: number) => void; state: KlState; setState: (f: (s: KlState) => KlState) => void }) {
   const { kind, url, key, peer, found, model, fixed, text } = state
-  const peers = useFleetPeers(kind === 'address')
+  const fleetAll = useFleet(kind === 'address')
+  const peers = fleetAll && fleetAll.filter((m) => !m.self)
+  const hereVersion = fleetAll?.find((m) => m.self)?.tensorfold_version
+  const peerVersion = peers?.find((m) => m.id === peer)?.tensorfold_version
   const pickKind = (k: 'drafts' | 'address') => setState((s) => ({ ...s, kind: k, found: null }))
   const edit = (patch: Partial<KlState>) => setState((s) => ({ ...s, ...patch, found: null }))
   const check = async (p = peer) => {
@@ -59,6 +69,7 @@ export function KlOptions({ load, setLoad, state, setState }: { load: number; se
       <label className="small"><input type="radio" name="klref" checked={kind === 'drafts'} onChange={() => pickKind('drafts')} /> The same engine with drafts off: exact decoding says the distributions are the same</label>
       <label className="small"><input type="radio" name="klref" checked={kind === 'address'} onChange={() => pickKind('address')} /> A reference engine at an address, such as the unquantized model on vLLM</label>
       {kind === 'address' && !found && <p className="small muted" style={{ margin: 0 }}>{peer ? 'Reading that machine\'s engine through its Studio…' : 'Check the reference before running: until then the run waits.'}</p>}
+      {kind === 'address' && peer && engineSkew(hereVersion, peerVersion) && <p className="small warn-text" style={{ margin: 0 }}>That machine runs TensorFold {peerVersion}, this one {hereVersion}: a reply can part between releases at a near tie, so this KL measures the release as well as the machine. Put both on the same release for a like-for-like check.</p>}
       {kind === 'address' && <div className="aim-row">
         <PeerPick peers={peers} value={peer} onChange={pickPeer} label="A Fleet machine as the reference" />
         {!peer && <>

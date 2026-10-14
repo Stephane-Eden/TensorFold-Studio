@@ -44,8 +44,9 @@ def two(tmp_path, monkeypatch):
     monkeypatch.setattr(fleet, "client", lambda: TestClient(peer, base_url="http://peer.test"))
     # both apps run in this process, so they share a hostname: the checks see the peer as another machine
     real = fleet.test
-    monkeypatch.setattr(fleet, "test", lambda url, token, *, own_hostname, own_version:
-                        real(url, token, own_hostname="here-host", own_version=own_version))
+    monkeypatch.setattr(fleet, "test", lambda url, token, *, own_hostname, own_version, own_engine_version=None:
+                        real(url, token, own_hostname="here-host", own_version=own_version,
+                             own_engine_version=own_engine_version))
     yield here, tmp_path
     server.shutdown()
 
@@ -123,3 +124,13 @@ def test_a_peer_that_stalls_after_its_first_answer_fails_the_check_instead_of_cr
     assert not r["ok"] and by["reach"] == "pass" and by["studio"] == "pass" and by["token"] == "fail"
     assert "ReadTimeout" in next(c["detail"] for c in r["checks"] if c["id"] == "token")
     assert by["engine"] == "skip"
+
+
+def test_two_tensorfold_releases_are_flagged_before_they_are_compared():
+    """Since 1.0.10 Nemotron on CUDA can part from 1.0.9 at a near tie: KL across two releases is not like for like."""
+
+    assert fleet.engine_skew("1.0.11", "1.0.11") is None
+    assert fleet.engine_skew("1.0.11", None) is None and fleet.engine_skew(None, "1.0.9") is None
+    assert fleet.engine_skew("1.0.11", "0.6.6 (Python)") is None             # the Python line: nothing to compare
+    said = fleet.engine_skew("1.0.11", "1.0.9")
+    assert said and said.startswith("it runs TensorFold 1.0.9, this one 1.0.11") and "KL" in said

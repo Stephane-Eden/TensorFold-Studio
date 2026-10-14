@@ -184,7 +184,23 @@ def probe_all(peers: list[dict]) -> list[dict]:
         return list(pool.map(probe, peers))
 
 
-def test(url: str, token: str | None, *, own_hostname: str, own_version: str) -> dict:
+# why two machines on different TensorFold releases are not compared like for like: since 1.0.10, Nemotron on CUDA
+# sums in another order, so a reply can part from an earlier release's at a near tie
+ENGINE_SKEW = ("replies can part at a near tie between releases (Nemotron on CUDA since 1.0.10), so KL and exactness "
+               "measured across the two compare releases as well as machines: update both to the same release")
+
+
+def engine_skew(here: str | None, there: str | None) -> str | None:
+    """Why ``here`` and ``there`` (native TensorFold versions) do not compare like for like, or None when they are the
+    same release or one of them is unknown or the Python line."""
+
+    if not here or not there or "Python" in here or "Python" in there or here == there:
+        return None
+    return f"it runs TensorFold {there}, this one {here}: {ENGINE_SKEW}"
+
+
+def test(url: str, token: str | None, *, own_hostname: str, own_version: str,
+         own_engine_version: str | None = None) -> dict:
     """What passed, failed or was skipped when reaching a Studio at ``url``, step by step."""
 
     checks: list[dict] = []
@@ -246,6 +262,12 @@ def test(url: str, token: str | None, *, own_hostname: str, own_version: str) ->
             add("version", "Same Studio version", "pass" if theirs == own_version else "warn",
                 theirs if theirs == own_version else f"it runs Studio {theirs}, this one {own_version}: figures may be "
                 "missing until both are updated")
+            theirs_engine = machine.get("tensorfold_version")
+            skew = engine_skew(own_engine_version, theirs_engine)
+            if not own_engine_version or not theirs_engine:
+                add("engine_version", "Same TensorFold version", "skip", "a TensorFold version is unknown on one side")
+            else:
+                add("engine_version", "Same TensorFold version", "warn" if skew else "pass", skew or theirs_engine)
 
             step = "engine"
             t0 = time.monotonic()
@@ -269,4 +291,5 @@ def test(url: str, token: str | None, *, own_hostname: str, own_version: str) ->
 
 
 STEPS = [("reach", "The address answers"), ("studio", "It is a TensorFold Studio"), ("token", "The token opens it"),
-         ("other", "It is another machine"), ("version", "Same Studio version"), ("engine", "Its engine")]
+         ("other", "It is another machine"), ("version", "Same Studio version"),
+         ("engine_version", "Same TensorFold version"), ("engine", "Its engine")]
