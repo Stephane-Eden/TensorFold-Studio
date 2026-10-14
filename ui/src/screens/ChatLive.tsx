@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { liveRate } from '../liverate'
 
-// what Cortheon did for a reply (TensorFold 1.0.9 with --cortheon): its searches and the pages it read and cites
+// what Cortheon did for a reply (TensorFold 1.0.9 and later with --cortheon; from 1.0.10
+// pages_read counts only the pages read, not refused or failed fetches): its searches and the pages it read and cites
 export type Cortheon = { task?: string; searches?: number; pages_read?: number; sources?: string[] }
 export const secs = (s: number) => s < 1 ? `${Math.round(s * 1000)} ms` : `${s.toFixed(1)} s`
 export const rate = (r: number) => r >= 10 ? `${Math.round(r)}` : r.toFixed(1)

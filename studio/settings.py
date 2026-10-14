@@ -34,7 +34,7 @@ class Settings:
     extra_args: list[str] = field(default_factory=list)
     share: bool = False                  # bind the engine on every interface; the API key then protects it
     api_key: str | None = None           # the engine's API key, generated when sharing is turned on
-    cortheon: bool = False               # Cortheon's reasoning and web research in the engine (TensorFold 1.0.9)
+    cortheon: bool = False               # Cortheon's reasoning and web research in the engine (1.0.9 on; 1.0.11 for its fixes)
     theme: str = "system"
     energy_price: float | None = None    # electricity, per kWh, for the Bench's energy cost
     currency: str = "EUR"

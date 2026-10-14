@@ -114,7 +114,7 @@ export type Settings = {
   currency: string
   extra_args: string[]
   share: boolean
-  cortheon: boolean                    // Cortheon's web research in the engine, at its next start (TensorFold 1.0.9)
+  cortheon: boolean                    // Cortheon's web research in the engine, at its next start (TensorFold 1.0.9 on; 1.0.11 for its security fixes)
   api_key: string | null
   api_key_set: boolean
   theme: 'system' | 'light' | 'dark'

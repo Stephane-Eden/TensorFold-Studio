@@ -19,10 +19,10 @@ def test_backend_and_install_say_how_to_fix():
            "os": "macOS", "arch": "arm64", "tensorfold_version": None}
     assert diagnostic.backend_check(mac).status == "pass" and "25 GB of 32" in diagnostic.backend_check(mac).detail
     missing = diagnostic.engine_installed_check(mac, remote=False)
-    assert missing.status == "fail" and missing.fix == "brew install ashhart/tensorfold/tensorfold"
+    assert missing.status == "fail" and missing.fix == "curl -fsSL https://tensorfold.dev/install.sh | sh"
     spark = {**mac, "os": "Linux", "arch": "aarch64", "tensorfold_version": "0.6.6 (Python)"}
     old = diagnostic.engine_installed_check(spark, remote=False)
-    assert old.status == "warn" and "linux-aarch64" in old.fix
+    assert old.status == "warn" and "tensorfold.dev/install.sh" in old.fix
     assert diagnostic.engine_installed_check(spark, remote=True).status == "skip"
     none = diagnostic.backend_check({"backend": "none", "backend_note": "RTX 3060 is compute capability 8.6"})
     assert none.status in ("fail", "warn") and none.fix
@@ -80,7 +80,7 @@ def test_checks_and_report_without_secrets(tmp_path, monkeypatch):
                        headers={"x-studio-token": "studio-token-987654"})
         checks = c.get("/api/diagnostic").json()["checks"]
         assert [x["id"] for x in checks] == ["backend", "installed", "port", "folder", "model", "engine", "memory",
-                                             "access", "service"]
+                                             "access", "service", "cortheon"]
         assert {x["id"]: x["status"] for x in checks}["installed"] == "skip"       # remote engine
         r = c.get("/api/diagnostic/report")
         assert r.status_code == 200 and "attachment" in r.headers["content-disposition"]
@@ -152,3 +152,13 @@ def test_sizes_are_refreshed_by_a_post_not_by_a_get_a_page_elsewhere_can_make(tm
     c = TestClient(create_app(settings=s, engine=Engine(s), catalog=cat))
     assert c.get("/api/catalog?refresh=true").status_code == 200 and calls == []
     assert c.post("/api/catalog/refresh").status_code == 200 and calls == [True]
+
+
+def test_web_research_on_an_engine_before_its_security_release_is_flagged():
+    check = diagnostic.cortheon_check
+    assert check({"cortheon": False}, "1.0.9", remote=False).status == "skip"
+    assert check({"cortheon": True}, "1.0.9", remote=True).status == "skip"     # another machine's release decides
+    old = check({"cortheon": True}, "1.0.9", remote=False)
+    assert old.status == "warn" and "1.0.11" in old.detail and "install.sh" in old.fix
+    assert check({"cortheon": True}, "1.0.11", remote=False).status == "pass"
+    assert check({"cortheon": True}, "1.0.12", remote=False).status == "pass"   # compared as numbers, not text

@@ -47,3 +47,24 @@ def test_a_checkpoint_the_engine_refuses_is_not_asked_again_on_every_view(monkey
     assert asked == [e.id]                                      # once, not on every Models or Home
     cat._facts_missed[e.id] -= catalog.FACTS_RETRY_S           # the memo aged out: asked again
     assert cat.engine_facts(e) is None and asked == [e.id, e.id]
+
+
+def test_a_mixed_width_checkpoint_is_native_from_the_release_that_reads_it(monkeypatch):
+    """`capabilities --json` lists the 27B's uniform format only: an oQ checkpoint counts as native from 1.0.10."""
+
+    from studio import catalog, native
+
+    caps = {"families": {"qwen3_5": ["mlx-q4g64"]}}
+    version = {"v": "1.0.9"}
+    monkeypatch.setattr(native, "find_binary", lambda: "/x/tensorfold")
+    monkeypatch.setattr(native, "version_of", lambda binary: version["v"])
+    monkeypatch.setattr(native, "capabilities", lambda binary: caps)
+    monkeypatch.setattr(native, "refused", lambda binary, model: None)
+    cat = catalog.Catalog()
+    cat.refresh_sizes_async = lambda: None
+    oq2 = next(x for x in cat.entries if x.id == "TensorFold/Qwen3.8-27B-oQ2")
+    assert oq2.native_from == "1.0.10" and not cat.native_here(oq2)
+    version["v"] = "1.0.11"
+    assert cat.native_here(oq2)
+    monkeypatch.setattr(native, "refused", lambda binary, model: "QwenMetalQualificationRequired")   # an M6
+    assert not cat.native_here(oq2)

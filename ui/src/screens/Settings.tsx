@@ -5,8 +5,10 @@ import SettingsAccess from './SettingsAccess'
 import SettingsBrands from './SettingsBrands'
 import SettingsStorage from './SettingsStorage'
 import { Diagnostic } from './SetupChecks'
+import { before } from '../version'
 
 const CONTEXTS = [null, 8192, 16384, 32768, 65536, 131072]
+const INSTALL = 'curl -fsSL https://tensorfold.dev/install.sh | sh'
 
 export default function SettingsScreen({ machine, engine, settings, saveSettings, toast, refreshBrands }: Ctx) {
   const [verdicts, setVerdicts] = useState<(Verdict & { fraction: number })[]>([])
@@ -75,7 +77,8 @@ export default function SettingsScreen({ machine, engine, settings, saveSettings
             <div className="r"><select className="sel" aria-label="Longest conversation" value={settings.context ?? ''} onChange={(e) => save({ context: e.target.value ? Number(e.target.value) : null })}>{CONTEXTS.map((c) => <option key={String(c)} value={c ?? ''}>{c ? `${num(c)} tokens` : 'Auto'}</option>)}</select></div></div>
           {flags?.flags['--cortheon'] && <div className="srow"><div className="l"><b>Web research (Cortheon)</b><span>TensorFold works through Cortheon's reasoning stages and searches the web before it answers, for every chat request any app sends; a request can still turn it off. Applies at the next start.
             {' '}<b>What leaves this machine:</b> the search queries the model writes from the conversation (to DuckDuckGo), and each page it reads, fetched from this machine's address. A web page can steer the model: use it where that risk is acceptable.
-            {settings.cortheon && settings.share && <span className="bad"> The engine is shared on the network: every app that reaches it gets web research.</span>}</span></div>
+            {settings.cortheon && settings.share && <span className="bad"> The engine is shared on the network: every app that reaches it gets web research.</span>}
+            {before(flags.version, [1, 0, 11]) && <span className="bad"> TensorFold {flags.version} predates 1.0.11, Cortheon's security release: a web page can hide orders from its instruction filter, hold a request for minutes or stop the engine. Update with <code>{INSTALL}</code> first.</span>}</span></div>
             <div className="r"><label className="toggle"><input type="checkbox" aria-label="Web research (Cortheon)" checked={!!settings.cortheon} onChange={(e) => save({ cortheon: e.target.checked }, e.target.checked ? 'Web research on at the next start' : 'Web research off at the next start')} /></label></div></div>}
           <div className="srow"><div className="l"><b>Appearance</b><span>Follows the system by default.</span></div>
             <div className="r"><select className="sel" aria-label="Appearance" value={settings.theme} onChange={(e) => save({ theme: e.target.value as typeof settings.theme })}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div></div>
@@ -97,7 +100,7 @@ export default function SettingsScreen({ machine, engine, settings, saveSettings
 
         <div className="section">
           <h2>Engine</h2>
-          <div className="srow"><div className="l"><b>TensorFold {machine.tensorfold_version ?? 'not installed'}</b><span>{machine.tensorfold_version ? (machine.tensorfold_version.includes('Python') ? `The frozen Python line, for the models not yet on the native engine. ${machine.backend_note}` : `The native engine. ${machine.backend_note}`) : 'Install it with brew install ashhart/tensorfold/tensorfold (Mac), or the release archive (Linux), or connect a remote engine below.'}</span></div></div>
+          <div className="srow"><div className="l"><b>TensorFold {machine.tensorfold_version ?? 'not installed'}</b><span>{machine.tensorfold_version ? (machine.tensorfold_version.includes('Python') ? `The frozen Python line, for the models not yet on the native engine. ${machine.backend_note}` : `The native engine. ${machine.backend_note}`) : <>Install it with <code>{INSTALL}</code> (Apple Silicon Mac or NVIDIA Linux), or connect a remote engine below.</>}</span></div></div>
           <div className="srow"><div className="l"><b>Remote engine</b><span>Drive a TensorFold on another machine, such as a DGX Spark. The Studio then only watches it.</span></div>
             <div className="r"><label className="toggle"><input type="checkbox" aria-label="Remote engine" checked={settings.remote} onChange={(e) => save({ remote: e.target.checked })} /></label></div></div>
           <div className="srow"><div className="l" style={{ flex: 1 }}><b>Address</b><span>Where the Studio reaches the engine.</span>

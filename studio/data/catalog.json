@@ -1,6 +1,6 @@
 {
- "updated": "2026-10-04",
- "note": "Curated metadata for the checkpoints TensorFold serves. Sizes are refreshed from Hugging Face when online; bytes_per_token values are estimates used for the context estimate. bytes_per_token for Gemma 4, Qwen3.8-27B and Bonsai 2 are the engine's own startup figures on a Mac mini M6 (TensorFold 0.6.5). workspace_bytes covers what the engine keeps beyond the files (fused projections, an MTP head) plus its prompt and draft work; the 27B's and Bonsai's values reproduce the context the engine admitted on that Mac. Tags describe what TensorFold can serve from the checkpoint here, not the vendor's model card: 'vision' means TensorFold's --vision path reads images for this family.",
+ "updated": "2026-10-14",
+ "note": "Curated metadata for the checkpoints TensorFold serves. Sizes are refreshed from Hugging Face when online; bytes_per_token values are estimates used for the context estimate. bytes_per_token for Gemma 4, Qwen3.8-27B and Bonsai 2 are the engine's own startup figures on a Mac mini M6 (TensorFold 0.6.5). workspace_bytes covers what the engine keeps beyond the files (fused projections, an MTP head) plus its prompt and draft work; the 27B's and Bonsai's values reproduce the context the engine admitted on that Mac. Tags describe what TensorFold can serve from the checkpoint here, not the vendor's model card: 'vision' means TensorFold's --vision path reads images for this family. The oQ entries are mixed-width checkpoints: `native_from` names the first native release that serves them, as `capabilities --json` lists uniform formats only; their bytes_per_token and workspace_bytes are the 4-bit 27B's until measured.",
  "models": [
   {
    "id": "mlx-community/gemma-4-26b-a4b-it-4bit",
@@ -105,6 +105,62 @@
    "workspace_bytes": 6442450944,
    "drafter_fraction": 0.3,
    "format": "mlx-q4g64"
+  },
+  {
+   "id": "TensorFold/Qwen3.8-27B-oQ4",
+   "family": "qwen3_5",
+   "name": "Qwen3.8-27B",
+   "vendor": "Alibaba",
+   "license": "Apache-2.0",
+   "description": "Qwen3.8-27B in mixed 4- to 6-bit widths (oMLX's oQ4): close to the 4-bit model, a little larger. Native on Macs from TensorFold 1.0.10, with the DFlash2 drafter.",
+   "tags": [
+    "chat",
+    "code",
+    "tools"
+   ],
+   "backends": [
+    "mlx"
+   ],
+   "drafter": "z-lab/Qwen3.8-27B-DFlash2",
+   "drafter_size_bytes": 3849125888,
+   "drafter_optional": null,
+   "max_context": 262144,
+   "bytes_per_token": 64000,
+   "size_bytes": null,
+   "speed_hint": "medium",
+   "workspace_bytes": 6442450944,
+   "drafter_fraction": 0.3,
+   "format": null,
+   "native_from": "1.0.10",
+   "native": true
+  },
+  {
+   "id": "TensorFold/Qwen3.8-27B-oQ2",
+   "family": "qwen3_5",
+   "name": "Qwen3.8-27B",
+   "vendor": "Alibaba",
+   "license": "Apache-2.0",
+   "description": "Qwen3.8-27B in mixed 2- to 8-bit widths (oMLX's oQ2): 11 GB on disk, so a 32 GB Mac keeps more room for context, at some cost in quality. Native on Macs from TensorFold 1.0.10, with the DFlash2 drafter.",
+   "tags": [
+    "chat",
+    "code",
+    "tools"
+   ],
+   "backends": [
+    "mlx"
+   ],
+   "drafter": "z-lab/Qwen3.8-27B-DFlash2",
+   "drafter_size_bytes": 3849125888,
+   "drafter_optional": null,
+   "max_context": 262144,
+   "bytes_per_token": 64000,
+   "size_bytes": null,
+   "speed_hint": "fast",
+   "workspace_bytes": 6442450944,
+   "drafter_fraction": 0.3,
+   "format": null,
+   "native_from": "1.0.10",
+   "native": true
   },
   {
    "id": "TensorFold/Qwen3.6-35B-A3B-MLX-4bit-MTP",

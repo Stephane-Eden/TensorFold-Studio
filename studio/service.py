@@ -80,7 +80,7 @@ def read_env(path: Path) -> dict[str, str]:
 def _path_env() -> str:
     home = Path.home()
     brew = [Path("/opt/homebrew/bin")] if platform_name() == "macos" else []
-    dirs = [home / ".local" / "bin", *brew, Path("/usr/local/bin"), Path("/usr/bin"), Path("/bin")]
+    dirs = [home / ".tensorfold" / "bin", home / ".local" / "bin", *brew, Path("/usr/local/bin"), Path("/usr/bin"), Path("/bin")]
     return ":".join(str(d) for d in dirs)
 
 

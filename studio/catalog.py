@@ -42,6 +42,8 @@ class Entry:
     native: bool = False                 # served by the native engine: what its `capabilities` say on this machine,
                                          # this flag only when no engine is installed to ask
     format: str | None = None            # the checkpoint's weight format as the engine names it ("mlx-q4g64")
+    native_from: str | None = None       # a mixed-width (oQ) checkpoint: the first native release that serves it, as
+                                         # `capabilities --json` lists each family's uniform formats only
     native_overhead_bytes: int | None = None   # what the native engine holds above `info`'s floor at idle, if measured
     engine_info: dict | None = None      # what the native engine's `info` says of the downloaded checkpoint
     installed: bool = False
@@ -251,7 +253,7 @@ class Catalog:
         from . import native
 
         binary = native.find_binary()
-        if binary is None or not e.format:
+        if binary is None or not (e.format or e.native_from):
             return e.native
         if native.refused(binary, e.id):            # listed by family, refused on this chip when it was tried
             return False
@@ -259,6 +261,9 @@ class Catalog:
             families = native.capabilities(binary).get("families") or {}
         except Exception:  # noqa: BLE001 - an engine that cannot say keeps the catalog's flag
             return e.native
+        if e.native_from:                           # its family served, by a release that reads mixed widths
+            return e.family in families and native.version_tuple(native.version_of(binary)) >= \
+                native.version_tuple(e.native_from)
         return e.format in (families.get(e.family) or [])
 
     def view(self, machine: Machine, *, fraction: float | None = None, backend: str | None = None) -> list[dict]:

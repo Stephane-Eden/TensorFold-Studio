@@ -47,13 +47,14 @@ def _amd_gpu() -> str | None:
     return None
 
 
+INSTALL = "curl -fsSL https://tensorfold.dev/install.sh | sh"
+
+
 def install_hint(os_name: str, arch: str) -> str:
-    if os_name == "macOS":
-        return "brew install ashhart/tensorfold/tensorfold"
-    machine = "aarch64" if arch in ("aarch64", "arm64") else arch
-    return (f"download tensorfold-<version>-linux-{machine}.tar.gz and its .sha256 from "
-            "https://github.com/ashhart/TensorFold/releases, check the sum, unpack it in ~/.local/opt and link "
-            "bin/tensorfold-native into ~/.local/bin")
+    """TensorFold's own installer (1.0.10 and later): the latest release for an Apple Silicon Mac or NVIDIA Linux
+    (x86_64 or aarch64), its sum checked, under ~/.tensorfold, where the Studio looks."""
+
+    return INSTALL
 
 
 def backend_check(m: dict) -> Check:
@@ -82,8 +83,7 @@ def grammar_library() -> bool | None:
     if binary is None:
         return None
     try:
-        version = native.version_of(binary) or ""
-        if tuple(int(x) for x in re.findall(r"\d+", version)[:3]) < (1, 0, 6):
+        if native.version_tuple(native.version_of(binary)) < (1, 0, 6):
             return None
     except (RuntimeError, ValueError, OSError):
         return None
@@ -211,13 +211,32 @@ def service_check(st: dict | None) -> Check:
                  "tensorfold-studio service install")
 
 
+# 1.0.11 is Cortheon's security release: before it a page could hide an order from the instruction filter, hold a
+# request for minutes or stop the server; 1.0.10 had already limited reads to URLs the conversation has shown
+CORTHEON_SAFE = (1, 0, 11)
+
+
+def cortheon_check(settings: dict, version: str | None, remote: bool) -> Check:
+    if not settings.get("cortheon"):
+        return Check("cortheon", "Web research", "skip", "off (Settings, Web research)")
+    if remote:
+        return Check("cortheon", "Web research", "skip", "the engine runs on another machine: its own release decides")
+    from . import native
+
+    if not version or "Python" in version or native.version_tuple(version) >= CORTHEON_SAFE:
+        return Check("cortheon", "Web research", "pass", f"on, with TensorFold {version}" if version else "on")
+    return Check("cortheon", "Web research", "warn", f"on with TensorFold {version}: before 1.0.11 a web page can "
+                 "hide orders from Cortheon's instruction filter, hold a request for minutes or stop the engine",
+                 f"update TensorFold ({INSTALL}, or brew upgrade tensorfold), or turn Web research off in Settings")
+
+
 def run(*, machine: dict, info: dict, settings: dict, cache_root: Path, installed: list[str], bind: str,
         token: bool, service_status: dict | None) -> list[Check]:
     remote = bool(settings.get("remote"))
     return [backend_check(machine), engine_installed_check(machine, remote),
             port_check(settings.get("engine_url", ""), info.get("status", ""), remote), folder_check(cache_root, remote),
             models_check(installed, remote), engine_check(info), memory_check(info), access_check(bind, token),
-            service_check(service_status)]
+            service_check(service_status), cortheon_check(settings, machine.get("tensorfold_version"), remote)]
 
 
 SECRET_PATTERNS = (re.compile(r"(?i)(bearer\s+)[^\s\"']+"), re.compile(r"(?i)((?:api[_-]?key|token)[\"']?\s*[:=]\s*[\"']?)[^\s\"',}]+"),

@@ -1,8 +1,9 @@
 """TensorFold's native engine (1.0 and later): find the binary, ask what it can do, and build its `serve` command.
 
 The binary is `tensorfold-native`; Homebrew installs it as `tensorfold`, which is also the name of the frozen Python
-line's command, so a `tensorfold` on PATH counts only when its `--version` says it is the native one. A Studio
-started without Homebrew on its PATH (over SSH, from launchd) still finds it in Homebrew's usual places.
+line's command, so a `tensorfold` on PATH counts only when its `--version` says it is the native one. The official
+installer (`curl -fsSL https://tensorfold.dev/install.sh | sh`) links it as `~/.tensorfold/bin/tensorfold`. A Studio
+started without these folders on its PATH (over SSH, from launchd) still finds it in their usual places.
 """
 
 from __future__ import annotations
@@ -17,8 +18,8 @@ from pathlib import Path
 from .settings import Settings
 
 TIMEOUT = 15.0
-# where Homebrew and release archives put the binary, for a Studio whose PATH does not include them
-CANDIDATES = ("/opt/homebrew/bin/tensorfold", "/usr/local/bin/tensorfold", "~/.local/bin/tensorfold-native",
+# where the official installer, Homebrew and release archives put the binary, for a Studio whose PATH lacks them
+CANDIDATES = ("~/.tensorfold/bin/tensorfold", "/opt/homebrew/bin/tensorfold", "/usr/local/bin/tensorfold", "~/.local/bin/tensorfold-native",
               "/opt/tensorfold/bin/tensorfold-native")
 # `serving NAME at URL (sampling: …; drafts: on; context: 262144; loaded in 13.9s)`
 _SERVING = re.compile(r"serving (?P<name>\S+) at (?P<url>\S+) \(.*?drafts: (?P<drafts>\w+); "
@@ -85,16 +86,27 @@ def version_of(path: str) -> str | None:
     return _versions[key]
 
 
+def version_tuple(version: str | None) -> tuple[int, ...]:
+    """`1.0.11` as (1, 0, 11), to compare releases; () when there is no version."""
+
+    return tuple(int(x) for x in re.findall(r"\d+", version or "")[:3])
+
+
 def find_binary() -> str | None:
-    """The native binary: `TENSORFOLD_BIN`, then `tensorfold-native` or a native `tensorfold` on PATH, then
-    Homebrew's and the archives' usual places."""
+    """The native binary: `TENSORFOLD_BIN` when it is one, else the newest release among `tensorfold-native` and a
+    native `tensorfold` on PATH and the installer's, Homebrew's and the archives' usual places (the first found on a
+    tie). Two installs side by side, such as the installer's 1.0.11 and an older Homebrew one, give the newer."""
 
     key = os.environ.get("TENSORFOLD_BIN", "") + "|" + os.environ.get("PATH", "")
     if key in _found and os.access(_found[key], os.X_OK):
         return _found[key]
-    names = [os.environ.get("TENSORFOLD_BIN"), shutil.which("tensorfold-native"), shutil.which("tensorfold"),
-             *(os.path.expanduser(c) for c in CANDIDATES)]
-    found = next((p for p in names if p and os.access(p, os.X_OK) and version_of(p)), None)
+    chosen = os.environ.get("TENSORFOLD_BIN")
+    found = chosen if chosen and os.access(chosen, os.X_OK) and version_of(chosen) else None
+    if found is None:
+        names = [shutil.which("tensorfold-native"), shutil.which("tensorfold"),
+                 *(os.path.expanduser(c) for c in CANDIDATES)]
+        natives = [p for p in dict.fromkeys(names) if p and os.access(p, os.X_OK) and version_of(p)]
+        found = max(natives, key=lambda p: version_tuple(version_of(p)), default=None)
     if found:                                     # a miss is not kept: an engine installed later is found then
         _found[key] = found
     return found

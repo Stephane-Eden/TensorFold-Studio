@@ -346,3 +346,34 @@ def test_managed_and_secret_flags_never_reach_a_command_line():
 
     kept, dropped = native.safe_extra(["--host", "0.0.0.0", "--keep-warm", "5", "--api-key=x", "--port", "1", "--loop-guard"])
     assert kept == ["--keep-warm", "5", "--loop-guard"] and dropped == ["--host", "--api-key", "--port"]
+
+
+def _release(folder, version):
+    """A stand-in native binary that only answers --version."""
+
+    folder.mkdir(parents=True, exist_ok=True)
+    exe = folder / "tensorfold"
+    exe.write_text(f"#!/bin/sh\necho 'tensorfold-native {version}'\n")
+    exe.chmod(0o755)
+    return str(exe)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the stand-in binary is a script with a shebang")
+def test_the_newest_of_two_installs_is_found(tmp_path, monkeypatch):
+    """The installer's ~/.tensorfold beside an older Homebrew one: the newer serves, whichever is on PATH first;
+    TENSORFOLD_BIN still picks one by hand."""
+
+    brew = _release(tmp_path / "brew", "1.0.9")
+    installer = _release(tmp_path / "home" / ".tensorfold" / "bin", "1.0.11")
+    monkeypatch.delenv("TENSORFOLD_BIN", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "brew"))
+    monkeypatch.setattr(native, "CANDIDATES", (installer, brew))
+    native.forget()
+    try:
+        assert native.find_binary() == installer
+        assert native.version_tuple("1.0.9") < native.version_tuple("1.0.11")
+        native.forget()
+        monkeypatch.setenv("TENSORFOLD_BIN", brew)
+        assert native.find_binary() == brew
+    finally:
+        native.forget()

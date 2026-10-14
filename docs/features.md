@@ -46,6 +46,12 @@ logo's source is in `ui/src/assets/models/README.md` and `ui/src/assets/logos/RE
   resume, refused before it starts when the disk cannot hold it; 13 Oct); start and stop; which engine serves each model, native 1.0 or the frozen
   Python line (`engines.py`, `native.py`).
 - Starting a model while another runs asks in place: "X is running. Stop it, then start Y?".
+- The 27B's mixed-width checkpoints (oMLX's oQ4 and oQ2, 14 Oct): native on Macs from TensorFold 1.0.10, which reads
+  each module at its own width. `capabilities --json` lists each family's uniform formats only, so their entries say
+  `native_from` instead of a format; a chip that refuses the 27B (the M6) still says so after one try.
+- Which binary serves (14 Oct): `TENSORFOLD_BIN` when set, else the newest release among PATH, the official
+  installer's `~/.tensorfold/bin` (`curl -fsSL https://tensorfold.dev/install.sh | sh`), Homebrew's and the
+  archives' places, so an installer release beside an older Homebrew one is the one used.
 - A native model on a Mac is judged by the native engine's own sizing (macOS's GPU limit, measured overhead): Nemotron
   "fits, 262,144 tokens" on 32 GB, as served.
 
@@ -208,7 +214,7 @@ TensorFold 1.0.7 teaches a served Nemotron facts into its own weights (`serve <f
   engine's own list (unknown, abbreviated, set by the Studio, or secret: refused). Web research (Cortheon, TensorFold
   1.0.9, 13 Oct): off by default, shown when the engine offers `--cortheon`, with what leaves the machine (the search
   queries to DuckDuckGo, page reads from this machine's address, the risk of a page steering the model) and a warning
-  when the engine is shared on the network.
+  when the engine is shared on the network, or when it predates 1.0.11, Cortheon's security release (14 Oct).
 - Settings, Makers and their logos (13 Oct, `brands.py`, `SettingsBrands.tsx`): the model and hardware makers the
   Studio recognises, each with its logo and the words that recognise it; a person adds a maker (name, words, logo:
   PNG, JPEG, WebP or SVG up to 150 KB, an SVG with a script refused), gives a known one a logo, or undoes that. Kept on
@@ -221,9 +227,10 @@ TensorFold 1.0.7 teaches a served Nemotron facts into its own weights (`serve <f
   bought it (June 2026) and stopped maintaining it.
 
 ## Setup and diagnostic (`diagnostic.py`, `SetupChecks.tsx`)
-- Nine checks, each with how to fix it: graphics backend (Metal, CUDA, an AMD GPU waiting on ROCm), TensorFold
-  installed (the Homebrew or archive command), engine port, model folder and its free space, a model downloaded,
-  engine running, memory headroom, who can reach the Studio, whether it keeps running.
+- Ten checks, each with how to fix it: graphics backend (Metal, CUDA, an AMD GPU waiting on ROCm), TensorFold
+  installed (TensorFold's own installer, `curl -fsSL https://tensorfold.dev/install.sh | sh`, on a Mac and on NVIDIA
+  Linux; 14 Oct), engine port, model folder and its free space, a model downloaded, engine running, memory headroom,
+  who can reach the Studio, whether it keeps running, and web research on an engine before 1.0.11 (14 Oct).
 - A getting-started list on Home until every step is ready, or put away; Settings keeps all the checks, a JSON
   report to send (keys and tokens taken out; machine names and paths stay) and a summary to copy.
 

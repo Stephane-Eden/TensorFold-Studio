@@ -71,6 +71,7 @@ def test_macos_agent(home, monkeypatch):
     assert doc["ProgramArguments"][-4:] == ["--token-file", str(conf / "studio-token"), "--port", "8091"]
     assert doc["EnvironmentVariables"]["HF_HUB_CACHE"] == "/Volumes/models"
     assert "/opt/homebrew/bin" in doc["EnvironmentVariables"]["PATH"]
+    assert str(tmp / ".tensorfold" / "bin") in doc["EnvironmentVariables"]["PATH"]   # the official installer's
     service.install(p)
     assert any(c[:2] == ("launchctl", "bootstrap") for c in calls)
 
