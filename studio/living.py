@@ -694,6 +694,9 @@ class Teacher:
             return
         kept = [f for f in it.found if f["outcome"] == "kept"]
         missed = [f for f in it.found if f["outcome"] != "kept"]
+        if any(f["outcome"] == "failed" for f in it.found):
+            it.state = "failed"                    # nothing it says was kept can be trusted to be on disk
+            return
         it.state = "kept" if kept and not missed else "partly kept" if kept else "missed"
         if not it.found and not it.message:
             it.message = "the engine ended the lesson without an outcome"
@@ -739,8 +742,14 @@ def _read_events(r: httpx.Response, it: Item) -> bool:
             f["outcome"] = "kept" if payload.get("recalled") else "missed"
             f["message"] = payload.get("message")
             it.steps = (it.steps or 0) + int(payload.get("steps") or 0)
-        elif kind == "failed":
-            it.message = payload.get("message")
+        elif kind == "failed":                   # 1.2.1 and later: the lesson's write to the shards failed
+            if not it.found:
+                it.found.append({"id": payload.get("id"), "text": it.fact, "outcome": "failed"})
+            for f in it.found:
+                f["outcome"] = "failed"
+            phase = payload.get("phase")
+            it.message = (f"the engine could not finish {'saving ' if phase == 'saving' else ''}the lesson: "
+                          f"{payload.get('message') or 'no reason given'}")
     return False
 
 

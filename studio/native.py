@@ -21,12 +21,15 @@ TIMEOUT = 15.0
 # where the official installer, Homebrew and release archives put the binary, for a Studio whose PATH lacks them
 CANDIDATES = ("~/.tensorfold/bin/tensorfold", "/opt/homebrew/bin/tensorfold", "/usr/local/bin/tensorfold", "~/.local/bin/tensorfold-native",
               "/opt/tensorfold/bin/tensorfold-native")
-# `serving NAME at URL (sampling: …; drafts: on; context: 262144; loaded in 13.9s)`
-_SERVING = re.compile(r"serving (?P<name>\S+) at (?P<url>\S+) \(.*?drafts: (?P<drafts>\w+); "
-                      r"context: (?P<context>\d+); loaded in (?P<loaded>[\d.]+)s\)")
+# `serving NAME at URL (sampling: …; drafts: on; context: 262144; loaded in 13.9s)`; from 1.2 the drafts name their
+# sources (`MTP + copies`, `DFlash2 (z-lab/…) + copies`, `copies only`, `none`) and the context can be `unlimited`
+_SERVING = re.compile(r"serving (?P<name>\S+) at (?P<url>\S+) \(.*?drafts: (?P<drafts>[^;]*); "
+                      r"context: (?P<context>\d+|unlimited); loaded in (?P<loaded>[\d.]+)s\)")
 # the CUDA engine's sizing line: `model 17.99 GiB; 8 streams at once, 0.18 GiB each at a 16384-token window, of
-# 83.8 GiB left after a 12.2 GiB reserve`
-_CUDA_SIZING = re.compile(r"model (?P<model>[\d.]+) GiB; (?P<streams>\d+) streams at once, (?P<each>[\d.]+) GiB each at a "
+# 83.8 GiB left after a 12.2 GiB reserve`; with --slide (1.2), `model 18.49 GiB and 25.54 GiB kept for --slide's
+# trainer; …`
+_CUDA_SIZING = re.compile(r"model (?P<model>[\d.]+) GiB(?: and (?P<trainer>[\d.]+) GiB kept for [^;]*)?; "
+                          r"(?P<streams>\d+) streams at once, (?P<each>[\d.]+) GiB each at a "
                           r"(?P<window>[\d,]+)-token window, of (?P<left>[\d.]+) GiB left after a (?P<reserve>[\d.]+) GiB reserve")
 _PROMPT_CACHE = re.compile(r"a (?P<gib>[\d.]+) GiB prompt cache")      # 1.0.5's CUDA sizing line
 # 1.0.5 on Metal: "prompt cache: 1.8 GiB from 1.8 GiB free under the 70% cap (18.6 GiB in use once loaded, …)"
@@ -270,17 +273,22 @@ def parse_startup(line: str) -> dict[str, float]:
         pc = _PROMPT_CACHE.search(line)
         return {"resident_gib": float(c.group("model")), "streams": float(c.group("streams")),
                 "stream_gib": float(c.group("each")), "left_gib": float(c.group("left")),
-                "reserve_gib": float(c.group("reserve")), **({"prompt_cache_gib": float(pc.group("gib"))} if pc else {})}
+                "reserve_gib": float(c.group("reserve")), **({"prompt_cache_gib": float(pc.group("gib"))} if pc else {}),
+                **({"trainer_gib": float(c.group("trainer"))} if c.group("trainer") else {})}
     m = _SERVING.search(line)
     if not m:
         return {}
-    return {"context_tokens": float(m.group("context")), "loaded_s": float(m.group("loaded")),
-            "drafts": 1.0 if m.group("drafts") == "on" else 0.0}
+    out = {"loaded_s": float(m.group("loaded")), "drafts": 0.0 if m.group("drafts").strip() in ("off", "none") else 1.0}
+    if m.group("context") != "unlimited":         # no window: the context is left for /v1/models to say
+        out["context_tokens"] = float(m.group("context"))
+    return out
 
 
-# a model the binary lists by family but will not load on this chip, such as the 27B on an M6 under 1.0.6:
-# "cannot load <path> (QwenMetalQualificationRequired)", said before any weight is read
-_REFUSED = re.compile(r"cannot load .*\((?P<why>\w*QualificationRequired)\)")
+# a model the binary lists by family but will not load here, said before any weight is read: the 27B on an M6 under
+# 1.0.6, "cannot load <path> (QwenMetalQualificationRequired)"; from 1.2, a checkpoint of a listed family it does not
+# serve, "the native Gemma 4 engine cannot load this checkpoint (GemmaMoeNotServed): it serves Gemma 4 31B and 12B…"
+# (the Gemma 4 26B-A4B). An error while reading (OpenFailed, OverMemoryLimit…) is not a refusal: nothing moves then.
+_REFUSED = re.compile(r"cannot load (?:this checkpoint |.*)\((?P<why>\w*(?:QualificationRequired|NotServed))\)")
 
 
 def refusal_in(lines: list[str]) -> str | None:

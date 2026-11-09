@@ -80,6 +80,7 @@ export type EngineInfo = {
   source: 'health' | 'metrics'         // where the figures come from: /health, or /metrics behind an API key
   memory: Record<string, number> | null
   kv_fill: number | null               // share of the KV cache held, 0 to 1; null: not reported by this engine
+  thinking_switch?: boolean | null     // false: the model cannot turn thinking off (the engine answers a 400); null: unsaid
   streams: { decoding: number; prefilling: number; paused: number } | null
   kept_prompts: number | null
   preemptions: number | null           // requests set aside to free memory since the engine started

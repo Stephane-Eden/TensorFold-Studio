@@ -19,6 +19,9 @@ from starlette.background import BackgroundTask
 HOP = {"host", "content-length", "connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade",
        "proxy-authorization", "proxy-authenticate"}
 STUDIO_HEADERS = {"x-studio-token"}
+# the page's own origin, checked by the Studio's gate: the engine (1.1.1 and later) refuses an Origin that is not its
+# own address with a 403, and the page's never is (another port, or the tailnet name), so it stays here
+BROWSER_ONLY = {"origin"}
 STUDIO_PARAMS = {"token"}
 ENGINE_AUTH = {"authorization", "x-api-key"}
 
@@ -38,10 +41,10 @@ class Proxy:
 
     def upstream_headers(self, incoming: list[tuple[str, str]], key: str | None = None, *,
                          snapshot: bool = False) -> dict[str, str]:
-        """The headers the engine gets: hop-by-hop and Studio credentials dropped, the engine's key enforced
-        (``key`` from the request's own snapshot of the target, when ``snapshot``)."""
+        """The headers the engine gets: hop-by-hop, the browser's Origin and Studio credentials dropped, the
+        engine's key enforced (``key`` from the request's own snapshot of the target, when ``snapshot``)."""
 
-        headers = {k: v for k, v in incoming if k.lower() not in HOP and k.lower() not in STUDIO_HEADERS}
+        headers = {k: v for k, v in incoming if k.lower() not in HOP | STUDIO_HEADERS | BROWSER_ONLY}
         key = key if snapshot else self._key()
         headers[RELAYED] = "1"                        # a request that comes back to a relay is refused there (a loop)
         if key:

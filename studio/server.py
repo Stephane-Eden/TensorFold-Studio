@@ -396,6 +396,18 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         async with start_lock:
             return await held_in_thread("an engine start", lambda: _start_held(patch))
 
+    def key_for_learning() -> bool:
+        """Give the engine a key before it serves a copy that learns, when it has none: from 1.2.5 the engine refuses
+        `--slide` without one, since anyone reaching it could rewrite the weights. True when a key was made."""
+
+        if s.api_key:
+            return False
+        with eng.target_lock:
+            s.api_key = settings_mod.new_api_key()
+            eng.retargeted()
+        save_settings()
+        return True
+
     def launch(model: str, entry: Any) -> dict:
         """Start ``model`` on the native engine when it serves it here, else on the Python line. A native engine that
         lists the model's family but refuses this chip (it says so before reading any weight) is remembered for its
@@ -409,10 +421,14 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
             if not path.is_dir() or living.is_unfinished(copy):
                 raise RuntimeError(f"there is no living copy named {copy} on this machine")
             why = living.teachable_here(native.find_binary())
+            made_key = not why and key_for_learning()
             result = eng.start(model, native_model=True, serve=str(path),
                                slide=None if why else str(living.graph_path(copy)))
             if why:
                 eng.note(f"{copy} serves without learning: {why}")
+            if made_key:
+                eng.note("a copy that learns needs an engine key (TensorFold 1.2.5 and later): the Studio made one; "
+                         "clients reach the engine through the Studio's relay, or with the key from Connect")
             return result
         here = bool(entry and cat.native_here(entry))
         result = eng.start(model, native_model=here, drafter=entry.drafter if here and entry else None)

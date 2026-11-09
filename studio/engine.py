@@ -75,6 +75,9 @@ class Health:
     preemptions: float | None = None           # requests set aside to free memory, since the engine started
     prompt_cache: dict | None = None           # prompt tokens restored from kept states, of all prompt tokens (1.0.5)
     totals: dict | None = None                 # tokens and requests since the engine started, for the usage history
+    # whether an explicit "thinking off" can be honoured (the served model's capabilities in /v1/models, 1.2.5 and
+    # later; the engine answers a 400 when it cannot); None when the engine does not say
+    thinking_switch: bool | None = None
     source: str = "health"                     # "health", or "metrics" when /health is bare behind an API key
     raw: dict | None = None
     error: str | None = None
@@ -341,6 +344,7 @@ class Engine:
         self._stopping = False                   # a stop was asked: its exit code is not a failure
         self._rates_lock = threading.Lock()      # the counters' baseline, moved by one caller at a time
         self._window_asked: int | None = None    # the generation /tokenize was asked under, once per target
+        self._model_caps: tuple[int, dict] | None = None   # the served model's capabilities, read once per target
         # the engine's address and key change together, under this lock; each change is a new generation, and a
         # reading begun under an older one is read again rather than let out (see health())
         self.target_lock = threading.Lock()
@@ -441,6 +445,7 @@ class Engine:
             self.startup = {}
             self._counters = {}
             self._window_asked = None
+            self._model_caps = None
             self.exit_code = None
             self._emit(f"[studio] $ {' '.join(cmd)}")
             for note in notes:
@@ -508,6 +513,7 @@ class Engine:
         self.last_health = None
         self._counters = {}
         self._window_asked = None
+        self._model_caps = None
 
     def _pump(self, child: _Child, log: Path, replay: bool) -> None:
         """Follows the log file while the engine runs; ``replay`` first reads what it wrote before this Studio.
@@ -653,6 +659,17 @@ class Engine:
                     h.totals = totals_of(m)
                     if m.get("mtp_drafted_total") and h.draft_acceptance is None:
                         h.draft_acceptance = min(1.0, max(0.0, m.get("mtp_accepted_total", 0.0) / m["mtp_drafted_total"]))
+        caps = self._model_caps
+        if h.ok and h.status != "unauthorized" and (caps is None or caps[0] != gen):
+            with contextlib.suppress(Exception):      # a miss is asked again at the next poll
+                r = self._client.get(base + "/v1/models", headers=hdrs)
+                if r.status_code == 200:
+                    data = [m for m in r.json().get("data", []) if isinstance(m, dict)]
+                    entry = next((m for m in data if m.get("id") == h.model), data[0] if data else {})
+                    got = entry.get("capabilities")
+                    caps = self._model_caps = (gen, got if isinstance(got, dict) else {})
+        if caps and caps[0] == gen and isinstance(caps[1].get("thinking_switch"), bool):
+            h.thinking_switch = caps[1]["thinking_switch"]
         if h.ok and not h.context_length and "context_tokens" not in self.startup and self._window_asked != gen:
             self._window_asked = gen                  # the served window, once per target, when nothing else said it
             with contextlib.suppress(Exception):

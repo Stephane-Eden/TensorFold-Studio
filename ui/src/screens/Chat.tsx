@@ -215,6 +215,11 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
   })
 
   const model = engine?.model ?? ''
+  // TensorFold 1.2.5 refuses an explicit "thinking off" the model's template cannot honour: the choice is not offered
+  const noOff = engine?.thinking_switch === false
+  useEffect(() => {
+    if (noOff && thinking === 'off') { setThinking('default'); toast(`${model || 'This model'} cannot turn thinking off: thinking is back to the model's default`) }
+  }, [noOff, thinking, model, toast])
   const engineLabel = engine?.managed === false ? `the engine at ${engine?.engine_url}` : engine?.engine_kind === 'native' ? 'TensorFold native' : engine?.engine_kind === 'python' ? 'TensorFold, Python line' : 'TensorFold'
   const ready = engine?.status === 'running'
   const webResearch = !!engine?.command?.includes('--cortheon')     // the engine runs Cortheon (Settings)
@@ -513,7 +518,7 @@ export default function Chat({ engine, settings, toast, refreshEngine }: Ctx) {
         </div>
         {options && !checking && !comparing && <div className="bar options" aria-label="Options">
           <select className="sel" value={thinking} onChange={(e) => setThinking(e.target.value as typeof thinking)} aria-label="Thinking">
-            <option value="default">Thinking: model default</option><option value="on">Thinking: on</option><option value="off">Thinking: off</option>
+            <option value="default">Thinking: model default</option><option value="on">Thinking: on</option><option value="off" disabled={noOff} title={noOff ? "This model's chat template cannot turn thinking off" : undefined}>Thinking: off{noOff ? " (this model cannot)" : ''}</option>
           </select>
           {thinking !== 'off' && <select className="sel" value={budget} onChange={(e) => setBudget(Number(e.target.value))} aria-label="Thinking budget"
             title="How many tokens the model may spend thinking before it must answer">

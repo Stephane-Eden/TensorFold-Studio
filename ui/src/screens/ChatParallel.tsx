@@ -46,7 +46,9 @@ export function ParallelPanel({ model, engine, sampling }: { model: string; engi
     const body: Record<string, unknown> = { model, stream: true, stream_options: { include_usage: true }, max_tokens: maxTokens,
       messages: [...(sampling.system ? [{ role: 'system', content: sampling.system }] : []), { role: 'user', content: s.prompt }] }
     if (sampling.temperature != null) body.temperature = sampling.temperature
-    if (sampling.thinking !== 'default') body.chat_template_kwargs = { enable_thinking: sampling.thinking === 'on' }
+    // an off the model cannot honour is a 400 from TensorFold 1.2.5: the model's default goes instead (said below)
+    if (sampling.thinking !== 'default' && !(sampling.thinking === 'off' && engine?.thinking_switch === false))
+      body.chat_template_kwargs = { enable_thinking: sampling.thinking === 'on' }
     try {
       const r = await fetch('/engine/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify(body), signal })
       if (!r.ok || !r.body) { const j = await r.json().catch(() => ({})); throw new Error(j.error?.message ?? j.detail ?? `${r.status} ${r.statusText}`) }
@@ -120,7 +122,7 @@ export function ParallelPanel({ model, engine, sampling }: { model: string; engi
       <label className="small">Prompts, one per line (taken in turn: {lines.length} for {n} {n === 1 ? 'request' : 'requests'})
         <textarea className="input" rows={3} value={prompts} onChange={(e) => setPrompts(e.target.value)} disabled={running} /></label>
       <p className="small muted" style={{ margin: 0 }}>
-        Thinking {sampling.thinking === 'default' ? "as the model's default" : sampling.thinking}, {sampling.system ? 'the system prompt given' : 'no system prompt'}, {sampling.temperature != null ? `temperature ${sampling.temperature}` : "the model's own temperature"}; replies are not kept.
+        Thinking {sampling.thinking === 'default' ? "as the model's default" : sampling.thinking === 'off' && engine?.thinking_switch === false ? "as the model's default (it cannot turn thinking off)" : sampling.thinking}, {sampling.system ? 'the system prompt given' : 'no system prompt'}, {sampling.temperature != null ? `temperature ${sampling.temperature}` : "the model's own temperature"}; replies are not kept.
         {cap ? ` This engine serves up to ${cap} requests at once; more wait their turn.` : ''} Try 1 first: the table then shows what batching adds.
       </p>
       {slots.length > 0 && <>
