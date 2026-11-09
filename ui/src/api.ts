@@ -142,7 +142,7 @@ type ModeSummary = { recalled: number; empty: number; errors?: number; leaks: { 
 export type CheckRunInfo = { id: string; label: string; at: number; thinking: boolean; summary: { facts: number; undone?: number; modes: Record<'off' | 'on', ModeSummary> } }
 type CheckCell = { before: string | null; after: string | null; changed: boolean; recalled?: boolean }
 export type CheckRow = { q: string; kind: string; fact: string | null; off?: CheckCell; on?: CheckCell }
-export type LivingView = { root: string; copies: LivingCopy[]; served: string | null; teachable: string | null; busy: boolean; recovering?: string | null; bases: string[]; base_names?: Record<string, string>; job: LessonJob | null; chore: Chore; peers: { id: string; name: string }[]
+export type LivingView = { root: string; shared_with?: string | null; left_behind?: string | null; copies: LivingCopy[]; served: string | null; teachable: string | null; busy: boolean; recovering?: string | null; bases: string[]; base_names?: Record<string, string>; job: LessonJob | null; chore: Chore; peers: { id: string; name: string }[]
   creating: { name?: string; base?: string; state?: 'copying' | 'done' | 'failed'; error?: string; started?: number } }
 export type PreviewFact = { id: string; fact: string; subject: string; question: string; about_user: boolean; supported: boolean; now: string | null }
 export type GraphFact = { id: number; text: string; state: string; neurons: number; questions: string[]; source: string | null }

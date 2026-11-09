@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import socket
 import sys
 import threading
 import webbrowser
@@ -15,6 +16,26 @@ from . import __version__
 from . import settings as settings_mod
 from .engine import Engine
 from .server import create_app
+
+
+def port_taken(host: str, port: int) -> str:
+    """Whether something listens on the Studio's port already: "" if free, else what is said of it. TensorFold Web,
+    begun as a copy of the Studio, listens on the same 8090. Windows is not asked: a probe there could share a port
+    uvicorn then fails on anyway, with its own message."""
+
+    if sys.platform == "win32":
+        return ""
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)   # as uvicorn does: a closing socket is no owner
+        try:
+            probe.bind((host, port))
+        except OSError:
+            from . import neighbours
+
+            return f" ({neighbours.NAME} runs here and uses it by default)" if neighbours.running() else \
+                " by another program"
+    return ""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -63,6 +84,12 @@ def main(argv: list[str] | None = None) -> int:
               "service).", file=sys.stderr, flush=True)
         # systemd does not restart on 4 (3 is uvicorn's own failed start); launchd restarts any non-zero exit, so
         # under it the exit is clean and the agent stays down until the next login, as the message says
+        return 0 if os.environ.get("XPC_SERVICE_NAME", "").startswith("com.tensorfold") else 4
+    taken = port_taken(args.host, args.port)
+    if taken:
+        print(f"[studio] port {args.port} is taken{taken}: start the Studio on another, `--port {args.port + 1}` "
+              f"(`tensorfold-studio service install --port {args.port + 1}` for the service)", file=sys.stderr,
+              flush=True)
         return 0 if os.environ.get("XPC_SERVICE_NAME", "").startswith("com.tensorfold") else 4
     s = settings_mod.load()
     eng = Engine(s, state_dir=settings_mod.config_dir())

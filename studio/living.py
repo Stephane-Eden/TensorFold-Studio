@@ -2,7 +2,7 @@
 
 TensorFold (1.0.7) teaches a served Nemotron facts into its own weights with `serve <folder> --slide`; it rewrites the
 folder's files and nothing undoes a fact, so it is always a copy. The Studio keeps those copies under one folder
-(`~/tensorfold-living` unless `TENSORFOLD_STUDIO_LIVING` says otherwise), each a plain model folder; what the Studio
+(`~/tensorfold-studio-living` unless `TENSORFOLD_STUDIO_LIVING` says otherwise; see root()), each a plain model folder; what the Studio
 keeps of a copy is apart, in `.studio/<name>/` (private): `meta.json` (base, creation), `facts.json` (the engine's
 fact graph), `lessons.json` (what the Studio sent, the answers before and after, the outcome), its versions and checks.
 
@@ -29,7 +29,7 @@ from pathlib import Path
 
 import httpx
 
-from . import httpread
+from . import httpread, neighbours
 
 PREFIX = "living:"                 # a model id naming a copy, as the Studio's settings keep it
 NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")     # no dot: nothing a copy is named can look like another's files
@@ -37,8 +37,41 @@ KEPT = ("kept", "partly kept")                       # outcomes that left someth
 LEARNABLE = {"nemotron_h"}         # the families TensorFold 1.0.7 learns into
 
 
+OWN, SHARED = "tensorfold-studio-living", "tensorfold-living"   # the Studio's folder; the one it shared with Web
+OWNER = "owner"                                     # in `<SHARED>/.studio/`: the Studio keeps that folder as its own
+
+
 def root() -> Path:
-    return Path(os.environ.get("TENSORFOLD_STUDIO_LIVING") or Path.home() / "tensorfold-living")
+    """`TENSORFOLD_STUDIO_LIVING`, else `~/tensorfold-studio-living`. A Studio made before TensorFold Web kept its
+    copies in `~/tensorfold-living`, the folder Web now uses by default: that folder stays the Studio's when it holds
+    the Studio's records and Web has never run here (it is then marked, so that a Web installed later does not take
+    it away), and is left to Web otherwise (see `left_behind()`)."""
+
+    if os.environ.get("TENSORFOLD_STUDIO_LIVING"):
+        return Path(os.environ["TENSORFOLD_STUDIO_LIVING"]).expanduser()
+    own, shared = Path.home() / OWN, Path.home() / SHARED
+    if own.exists():
+        return own
+    if (shared / ".studio" / OWNER).is_file():
+        return shared
+    if (shared / ".studio").is_dir() and not neighbours.installed():
+        with contextlib.suppress(OSError):
+            (shared / ".studio" / OWNER).write_text("tensorfold-studio\n")
+            return shared
+    return own
+
+
+def left_behind() -> Path | None:
+    """`~/tensorfold-living` when it holds copies and the Studio no longer uses it (TensorFold Web's, or an earlier
+    Studio's that Web was installed beside): said on the Teach page, as the Studio does not show them."""
+
+    shared = Path.home() / SHARED
+    if os.environ.get("TENSORFOLD_STUDIO_LIVING") or root() == shared or not shared.is_dir():
+        return None
+    with contextlib.suppress(OSError):
+        if any((d / "config.json").is_file() for d in shared.iterdir() if not d.name.startswith(".")):
+            return shared
+    return None
 
 
 def folder(name: str) -> Path:

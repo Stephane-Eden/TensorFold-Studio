@@ -20,11 +20,12 @@ from collections import deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 import psutil
 
-from . import engines, native
+from . import engines, native, neighbours
 from . import settings as settings_mod
 from .settings import Settings
 
@@ -436,7 +437,11 @@ class Engine:
             if self.owned:
                 raise RuntimeError(f"an engine is already running ({self.model}); stop it first")
             if answers:
-                raise RuntimeError(f"a server already answers at {self.settings.engine_url}; stop it or change the address")
+                web = neighbours.running() and urlsplit(self.settings.engine_url).port in (None, 8080)
+                raise RuntimeError(f"a server already answers at {self.settings.engine_url}" + (
+                    f" (likely {neighbours.NAME}'s engine: it uses the same port); stop it, or give the Studio's "
+                    "engine another port in Settings, such as http://127.0.0.1:8081" if web else
+                    "; stop it or change the address"))
             launch = engines.choose(native_model).launch(serve or model, self.settings, drafter, slide)
             cmd, env, notes = launch.cmd, launch.env, launch.notes
             self.command = cmd

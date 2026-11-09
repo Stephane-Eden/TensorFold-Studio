@@ -44,6 +44,7 @@ from . import (
     living,
     living_checks,
     living_versions,
+    neighbours,
     quality,
     recipes,
     replay,
@@ -1533,8 +1534,16 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         base = s.engine_url.rstrip("/").removesuffix("/v1")
         return living.Target(base, eng.key_in_use(), h.model or eng.model or "")
 
-    for said in living_versions.recover() + living_versions.recover_unfinished():   # left halfway by a stopped Studio
-        eng.note(said)
+    # TensorFold Web recovers the same kind of folder when it starts: one it keeps too, while it runs, is not touched
+    web_shares = neighbours.shares_living(living.root())
+    web_working = web_shares and neighbours.running()
+    if web_shares:
+        eng.note(f"{neighbours.NAME} keeps its living copies in {living.root()} too: give the Studio a folder of its "
+                 "own (TENSORFOLD_STUDIO_LIVING=/that/folder in studio.env), as the two undo each other's unfinished "
+                 "work when they start" + (" (it runs now: nothing left halfway there was recovered)" if web_working
+                                           else ""))
+    for said in ([] if web_working else living_versions.recover() + living_versions.recover_unfinished()):
+        eng.note(said)                                    # left halfway by a stopped Studio
     def undo_lesson(copy: str, version: str) -> None:
         """A lesson's own rollback, the gate already held by the lesson: stop, restore the version, serve again."""
 
@@ -1553,7 +1562,7 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
         r.raise_for_status()                              # an error page is not a graph
         return r.json()
 
-    said = teacher.recover(engine_graph, alive=lambda: eng.owned)
+    said = None if web_working else teacher.recover(engine_graph, alive=lambda: eng.owned)
     if said:
         eng.note(said)
     app.state.teacher = teacher
@@ -1568,7 +1577,10 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
             if c["base"] is None and c["name"] not in looked_for_base:
                 looked_for_base.add(c["name"])                # a copy made by hand: its base found once
                 c["base"] = living.base_of(c["name"], bases)
+        left = living.left_behind()
         return {"root": str(living.root()), "copies": copies, "served": served_copy(),
+                "shared_with": neighbours.NAME if neighbours.shares_living(living.root()) else None,
+                "left_behind": str(left) if left else None,
                 "teachable": living.teachable_here(native.find_binary()), "creating": dict(creating),
                 "job": teacher.job.to_dict() if teacher.job else None, "busy": teacher.busy(),
                 "recovering": teacher.recovering,

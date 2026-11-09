@@ -1,0 +1,55 @@
+name: Engine canary
+
+# The Studio against the latest TensorFold release, every day: the binary's version, capabilities and `serve` flags,
+# and the log lines the Studio parses, read from the source of the same tag (tests/test_engine_canary.py). A red run
+# means a release changed something the Studio reads: look before users do.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "A TensorFold tag to check, such as v1.2.5 (the latest release when empty)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      UPSTREAM: ashhart/TensorFold
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - name: Download the release
+        env:
+          WANTED: ${{ inputs.tag }}
+        run: |
+          set -eo pipefail
+          tag=${WANTED:-$(gh release view -R "$UPSTREAM" --json tagName -q .tagName)}
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/rel" "$RUNNER_TEMP/src" && cd "$RUNNER_TEMP/rel"
+          gh release download "$tag" -R "$UPSTREAM" --pattern "tensorfold-*-linux-x86_64.tar.gz" \
+            --pattern "tensorfold-*-linux-x86_64.tar.gz.sha256"
+          sha256sum -c ./*.sha256
+          tar -xzf ./*.tar.gz
+          bin=$(find "$RUNNER_TEMP/rel" -path "*/bin/tensorfold-native" -type f | head -1)
+          test -x "$bin" || { echo "no bin/tensorfold-native in the archive"; exit 1; }
+          echo "TENSORFOLD_CANARY_BIN=$bin" >> "$GITHUB_ENV"
+          gh api "repos/$UPSTREAM/tarball/$tag" > "$RUNNER_TEMP/src.tgz"
+          tar -xzf "$RUNNER_TEMP/src.tgz" -C "$RUNNER_TEMP/src" --strip-components=1
+          echo "TENSORFOLD_CANARY_SOURCE=$RUNNER_TEMP/src" >> "$GITHUB_ENV"
+          "$bin" --version
+      - name: Check what the Studio reads
+        run: pytest -q -rs tests/test_engine_canary.py
+      - name: Summary
+        if: always()
+        run: |
+          echo "TensorFold $TAG checked against the Studio at ${GITHUB_SHA::7}: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
