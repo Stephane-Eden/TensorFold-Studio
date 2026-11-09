@@ -1,3 +1,5 @@
+<img src="ui/public/icon-512.png" alt="TensorFold Studio's mark: a Möbius band of glowing mesh" width="120">
+
 # TensorFold Studio
 
 A web interface for [TensorFold](https://github.com/ashhart/TensorFold): pick a model that fits the machine, run it,
@@ -94,5 +96,6 @@ environment.
 ## License
 
 Apache License 2.0, as TensorFold. "TensorFold" names Ash Hart's engine, which this Studio drives; the Studio is not
-endorsed by it. The logos in `ui/src/assets/` belong to their owners; each folder's README says where each one comes
+endorsed by it. The Studio's mark, a Möbius band in the manner of TensorFold's ribbon, is Stéphane Rogeau's. The
+logos in `ui/src/assets/` belong to their owners; each folder's README says where each one comes
 from.
