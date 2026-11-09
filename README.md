@@ -39,6 +39,34 @@ tensorfold-studio service install               # keep it running (launchd on ma
 
 TensorFold itself: `curl -fsSL https://tensorfold.dev/install.sh | sh` (see its README).
 
+## The token
+
+The Studio starts and stops engines and reads your conversations, so anything that can reach it from elsewhere must
+show its token first.
+
+- **Started by hand** (`tensorfold-studio`), it listens on this machine only (127.0.0.1) and asks for nothing.
+- **As a service** (`tensorfold-studio service install`), it gets a token at install, kept in its settings folder and
+  readable by you only: `~/.config/tensorfold-studio/studio-token` on Linux,
+  `~/Library/Application Support/TensorFold Studio/studio-token` on macOS. Each browser asks for it once.
+- **Reached from another machine** (`--host 0.0.0.0`, or behind a proxy such as `tailscale serve`), the token is
+  required.
+
+```bash
+tensorfold-studio token                         # show it (--copy: to the clipboard), to paste when a page asks
+tensorfold-studio token --new                   # make a new one; then `tensorfold-studio service install` restarts the service with it
+```
+
+To open the Studio on a phone or another computer without typing the token: Settings, "Open this Studio on another
+device", gives a link and a QR code that work once, for five minutes.
+
+Over Tailscale, for example, keep the Studio on this machine and let Tailscale publish it on your tailnet, with HTTPS:
+
+```bash
+tensorfold-studio service install --port 8091   # 8091 if TensorFold Web already has 8090
+tailscale serve --bg --https=8444 http://127.0.0.1:8091
+# then https://<this machine>.<your tailnet>.ts.net:8444, and the token once
+```
+
 ## Work on it
 
 ```bash
