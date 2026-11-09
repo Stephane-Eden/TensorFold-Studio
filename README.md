@@ -6,8 +6,8 @@ A web interface for [TensorFold](https://github.com/ashhart/TensorFold): pick a 
 watch it work, chat with it, teach it (Living Weights), measure it and connect tools to it, from a browser tab.
 
 **An independent project, not part of TensorFold.** TensorFold ships its own web interface, TensorFold Web
-(`tensorfold web`), which began from this Studio; the two have gone their own ways since. The Studio is for those who
-prefer its screens. TensorFold is Ash Hart's work; questions about the engine belong in
+(`tensorfold web`), which began from this Studio. The Studio is presented here only for reference, it may not be maintained in the future. 
+TensorFold is Ash Hart's work; questions about the engine belong in
 [its repository](https://github.com/ashhart/TensorFold), questions about the Studio here.
 
 In daily use on a Mac mini M6 (Metal) and two DGX Spark GB10 (CUDA), with TensorFold 1.2.5. The Studio reads what the
