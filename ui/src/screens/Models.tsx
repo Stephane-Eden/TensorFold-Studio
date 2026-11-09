@@ -128,7 +128,7 @@ export default function Models({ machine, engine, settings, refreshEngine, refre
         <span><b>{engine?.model}</b> is {engine?.status === 'starting' ? 'still loading' : 'running'}. The engine serves one model at a time: stop it, then start <b>{conflict.name}</b>?{engine?.connections ? ` ${engine.connections} ${engine.connections === 1 ? 'connection is' : 'connections are'} open and will be cut.` : ''}</span>
         <span className="actions"><button className="btn sm primary" disabled={busy} onClick={() => start(conflict, true)}>Stop it and start {conflict.name}</button><button className="btn sm quiet" onClick={() => setConflict(null)}>Keep it running</button></span>
       </div>}
-      {machine && machine.backend === 'none' && <div className="notice">{machine.backend_note} Use Settings to connect to a TensorFold running elsewhere.</div>}
+      {machine && (machine.backend === 'none' || machine.backend === 'hip') && <div className="notice">{machine.backend_note} Use Settings to connect to a TensorFold running elsewhere.</div>}
       {machine && machine.budget.basis === 'cuda-unverified' && <div className="notice info">Memory verdicts on CUDA machines use TensorFold's documented rule for a card's memory but have not been checked against a real run yet; treat them as rough.</div>}
       {settings?.remote && <div className="notice info">The engine is remote: this list and its verdicts describe <b>this</b> machine, and Start only works for an engine run here.</div>}
 

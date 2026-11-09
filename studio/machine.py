@@ -38,7 +38,7 @@ class Machine:
     ram_available_bytes: int
     unified_memory: bool
     gpus: list[Gpu] = field(default_factory=list)
-    backend: str = "none"        # "mlx", "cuda" or "none"
+    backend: str = "none"        # "mlx", "cuda", "hip" or "none"
     backend_note: str = ""
     tensorfold_version: str | None = None
     hostname: str = ""
@@ -196,6 +196,37 @@ def _probe() -> tuple[Machine, bool]:
     elif smi_error:
         m.backend_note = f"nvidia-smi gave no answer ({smi_error}); it is asked again at the next request."
         return m, False
+    elif amd := amd_gpus():
+        m.gpus = amd
+        m.chip = amd[0].name
+        m.backend = "hip"
+        m.backend_note = (f"{amd[0].name}: TensorFold's native HIP engine runs on AMD GPUs (with the ROCm runtime), but "
+                          "its only model checked there so far is dots.mocr, for OCR: no model of the catalog runs here "
+                          "yet. You can still drive a TensorFold running on another machine.")
     else:
         m.backend_note = "No Apple Silicon GPU and no NVIDIA GPU found. You can still drive a TensorFold running on another machine."
     return m, True
+
+
+def amd_gpus(root: Path = Path("/sys/class/drm")) -> list[Gpu]:
+    """AMD GPUs as the Linux kernel lists them (vendor 0x1002), each with its own memory; an APU such as Strix Halo,
+    whose small VRAM carve-out is not what the GPU can use, has its memory left unknown."""
+
+    out: list[Gpu] = []
+    for dev in sorted(root.glob("card[0-9]*/device")):
+        try:
+            if (dev / "vendor").read_text().strip() != "0x1002":
+                continue
+            device_id = (dev / "device").read_text().strip()
+        except OSError:
+            continue
+        try:
+            name = (dev / "product_name").read_text().strip()
+        except OSError:
+            name = ""
+        try:
+            vram = int((dev / "mem_info_vram_total").read_text())
+        except (OSError, ValueError):
+            vram = None
+        out.append(Gpu(name=name or f"AMD GPU {device_id}", memory_bytes=vram if vram and vram >= 8 * GIB else None))
+    return out

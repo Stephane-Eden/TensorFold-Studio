@@ -284,6 +284,22 @@ def parse_startup(line: str) -> dict[str, float]:
     return out
 
 
+# 1.2 on a Mac: the streams' buffers are sized before the weights load, and a context they leave no room for is refused,
+# "--parallel 8 needs 23.4 GiB for its streams and 512-row prompt scratch at a 32768-token context; 4.1 GiB remains
+# beside the weights …: lower --context" (the 27B on a 32 GB Mac at the default context)
+_CONTEXT_REFUSED = re.compile(r"--parallel \d+ needs [\d.]+ GiB .*? at an? (?P<context>\d+)-token context;.*lower --context")
+
+
+def context_refusal(lines: list[str]) -> int | None:
+    """The context the engine refused for lack of memory, from its last lines; None when it refused nothing so."""
+
+    for line in reversed(lines):
+        m = _CONTEXT_REFUSED.search(line)
+        if m:
+            return int(m.group("context"))
+    return None
+
+
 # a model the binary lists by family but will not load here, said before any weight is read: the 27B on an M6 under
 # 1.0.6, "cannot load <path> (QwenMetalQualificationRequired)"; from 1.2, a checkpoint of a listed family it does not
 # serve, "the native Gemma 4 engine cannot load this checkpoint (GemmaMoeNotServed): it serves Gemma 4 31B and 12B…"

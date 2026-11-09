@@ -1,6 +1,6 @@
 {
- "updated": "2026-10-14",
- "note": "Curated metadata for the checkpoints TensorFold serves. Sizes are refreshed from Hugging Face when online; bytes_per_token values are estimates used for the context estimate. bytes_per_token for Gemma 4, Qwen3.8-27B and Bonsai 2 are the engine's own startup figures on a Mac mini M6 (TensorFold 0.6.5). workspace_bytes covers what the engine keeps beyond the files (fused projections, an MTP head) plus its prompt and draft work; the 27B's and Bonsai's values reproduce the context the engine admitted on that Mac. Tags describe what TensorFold can serve from the checkpoint here, not the vendor's model card: 'vision' means TensorFold's --vision path reads images for this family. The oQ entries are mixed-width checkpoints: `native_from` names the first native release that serves them, as `capabilities --json` lists uniform formats only; their bytes_per_token and workspace_bytes are the 4-bit 27B's until measured.",
+ "updated": "2026-11-09",
+ "note": "Curated metadata for the checkpoints TensorFold serves. Sizes are refreshed from Hugging Face when online; bytes_per_token values are estimates used for the context estimate. bytes_per_token for Gemma 4, Qwen3.8-27B and Bonsai 2 are the engine's own startup figures on a Mac mini M6 (TensorFold 0.6.5). workspace_bytes covers what the engine keeps beyond the files (fused projections, an MTP head) plus its prompt and draft work; the 27B's and Bonsai's values reproduce the context the engine admitted on that Mac. Tags describe what TensorFold can serve from the checkpoint here, not the vendor's model card: 'vision' means TensorFold's --vision path reads images for this family. The oQ entries are mixed-width checkpoints: `native_from` names the first native release that serves them, as `capabilities --json` lists uniform formats only; their bytes_per_token and workspace_bytes are the 4-bit 27B's until measured. The entries of 9 November 2026 come from TensorFold 1.2.5's model table; their bytes_per_token are read from each config (full-attention layers x KV heads x head size x 4 bytes, the formula that gives the 27B's 64,000) until the engine is measured with them; the Super VL's format is left out, as `capabilities` names its mixed NVFP4 by family only.",
  "models": [
   {
    "id": "mlx-community/gemma-4-26b-a4b-it-4bit",
@@ -264,6 +264,183 @@
    "workspace_bytes": 8589934592,
    "drafter_fraction": 1.0,
    "format": "mlx-q4g64"
+  },
+  {
+   "id": "mlx-community/Qwen3.5-2B-MLX-4bit",
+   "family": "qwen3_5",
+   "name": "Qwen3.5-2B",
+   "vendor": "Alibaba",
+   "license": "Apache-2.0",
+   "description": "A small model for small machines: 1.7 GB, quick on any Mac or GB10. Text only.",
+   "tags": [
+    "chat",
+    "fast"
+   ],
+   "backends": [
+    "mlx",
+    "cuda"
+   ],
+   "drafter": null,
+   "drafter_optional": null,
+   "max_context": 262144,
+   "bytes_per_token": 12288,
+   "size_bytes": null,
+   "speed_hint": "fastest",
+   "workspace_bytes": 1073741824,
+   "format": "mlx-q4g64",
+   "native": true
+  },
+  {
+   "id": "mlx-community/gemma-4-31B-it-4bit",
+   "family": "gemma4",
+   "name": "Gemma 4 31B",
+   "vendor": "Google",
+   "license": "Apache-2.0",
+   "description": "Google's dense Gemma 4, served natively from TensorFold 1.1.4; z-lab's DFlash drafter speeds it up (on Macs, from the M5). Reads images.",
+   "tags": [
+    "chat",
+    "writing",
+    "vision"
+   ],
+   "backends": [
+    "mlx",
+    "cuda"
+   ],
+   "drafter": null,
+   "drafter_optional": "z-lab/gemma-4-31B-it-DFlash",
+   "max_context": 262144,
+   "bytes_per_token": 81920,
+   "size_bytes": null,
+   "speed_hint": "medium",
+   "workspace_bytes": 4294967296,
+   "format": "mlx-q4g64",
+   "native": true
+  },
+  {
+   "id": "LiquidAI/LFM2.5-24B-A2B-MLX-4bit",
+   "family": "lfm2_moe",
+   "name": "LFM2.5-24B-A2B",
+   "vendor": "Liquid AI",
+   "license": "LFM Open License v1.0",
+   "description": "A mixture of experts with 2B active parameters: very quick, 13.6 GB. Text only.",
+   "tags": [
+    "chat",
+    "tools",
+    "fast"
+   ],
+   "backends": [
+    "mlx",
+    "cuda"
+   ],
+   "drafter": null,
+   "drafter_optional": null,
+   "max_context": 131072,
+   "bytes_per_token": 20480,
+   "size_bytes": null,
+   "speed_hint": "fastest",
+   "workspace_bytes": 2147483648,
+   "format": "mlx-q4g64",
+   "native": true
+  },
+  {
+   "id": "LiquidAI/LFM2.5-24B-A2B-MLX-8bit",
+   "family": "lfm2_moe",
+   "name": "LFM2.5-24B-A2B",
+   "vendor": "Liquid AI",
+   "license": "LFM Open License v1.0",
+   "description": "The same model at 8 bits: closer to the original, 25.5 GB. Macs only.",
+   "tags": [
+    "chat",
+    "tools"
+   ],
+   "backends": [
+    "mlx"
+   ],
+   "drafter": null,
+   "drafter_optional": null,
+   "max_context": 131072,
+   "bytes_per_token": 20480,
+   "size_bytes": null,
+   "speed_hint": "fast",
+   "workspace_bytes": 2147483648,
+   "format": "mlx-q8g64",
+   "native": true
+  },
+  {
+   "id": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4",
+   "family": "nemotron_h",
+   "name": "Nemotron 3.5 Lightning 30B-A3B",
+   "vendor": "NVIDIA",
+   "license": "Open Model License",
+   "description": "NVIDIA's own 4-bit Lightning (NVFP4), for NVIDIA GPUs: the GB10's native number format.",
+   "tags": [
+    "code",
+    "tools",
+    "fast"
+   ],
+   "backends": [
+    "cuda"
+   ],
+   "drafter": null,
+   "drafter_optional": null,
+   "max_context": 262144,
+   "bytes_per_token": 13500,
+   "size_bytes": null,
+   "speed_hint": "fastest",
+   "workspace_bytes": 2684354560,
+   "format": "modelopt-nvfp4",
+   "native": true
+  },
+  {
+   "id": "nvidia/Qwen3.6-35B-A3B-NVFP4",
+   "family": "qwen3_5_moe",
+   "name": "Qwen3.6-35B-A3B",
+   "vendor": "Alibaba",
+   "license": "Apache-2.0",
+   "description": "NVIDIA's mixed NVFP4 Qwen3.6, for NVIDIA GPUs. Its draft head is used when --drafter names the same checkpoint (extra flags).",
+   "tags": [
+    "chat",
+    "code",
+    "fast"
+   ],
+   "backends": [
+    "cuda"
+   ],
+   "drafter": null,
+   "drafter_optional": null,
+   "max_context": 262144,
+   "bytes_per_token": 40000,
+   "size_bytes": null,
+   "speed_hint": "fast",
+   "workspace_bytes": 2684354560,
+   "format": "modelopt-mixed",
+   "native": true
+  },
+  {
+   "id": "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+   "family": "nemotron_h_omni",
+   "name": "Nemotron 3.5 Super VL 120B-A12B",
+   "vendor": "NVIDIA",
+   "license": "Open Model License",
+   "description": "The large Nemotron, 120B parameters with 12B active: 70.8 GiB of weights, for a DGX Spark. Reads images with --vision.",
+   "tags": [
+    "agents",
+    "reasoning",
+    "vision",
+    "long context"
+   ],
+   "backends": [
+    "cuda"
+   ],
+   "drafter": null,
+   "drafter_optional": null,
+   "max_context": 262144,
+   "bytes_per_token": 18000,
+   "size_bytes": null,
+   "speed_hint": "medium",
+   "workspace_bytes": 8589934592,
+   "format": null,
+   "native": true
   }
  ]
 }

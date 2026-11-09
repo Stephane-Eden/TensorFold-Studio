@@ -50,7 +50,7 @@ export type Machine = {
   ram_available_bytes: number
   unified_memory: boolean
   gpus: { name: string; memory_bytes: number | null; compute_capability: string | null }[]
-  backend: 'mlx' | 'cuda' | 'none'
+  backend: 'mlx' | 'cuda' | 'hip' | 'none'
   backend_note: string
   tensorfold_version: string | null
   hostname: string

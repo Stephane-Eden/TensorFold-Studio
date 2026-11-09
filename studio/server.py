@@ -432,25 +432,57 @@ def create_app(*, settings: settings_mod.Settings | None = None, engine: Engine 
                          "clients reach the engine through the Studio's relay, or with the key from Connect")
             return result
         here = bool(entry and cat.native_here(entry))
-        result = eng.start(model, native_model=here, drafter=entry.drafter if here and entry else None)
-        if not here:
-            return result
-        end = time.time() + 8
-        while time.time() < end:                            # a refusal comes before any weight is read
-            if native.refusal_in(list(eng.log)[-20:]) or eng.exit_code is not None or eng.health().ok:
-                break
-            time.sleep(0.25)
-        if eng.owned and not native.refusal_in(list(eng.log)[-20:]):
-            return result                                   # loading or serving: nothing was refused
-        if not eng.wait_stopped(5):                         # gone, and its log read to the last line
-            return result                                   # still there: nothing is started over it
-        why = native.refusal_in(list(eng.log)[-40:])
+        drafter = entry.drafter if here and entry else None
+        result = eng.start(model, native_model=here, drafter=drafter)
+        if not here or not refused_or_running():
+            return result                                   # the Python line, or loading or serving: nothing refused
         binary = native.find_binary()
+        too_long = native.context_refusal(list(eng.log)[-40:])
+        if too_long and binary is not None:
+            return start_shorter(model, drafter, too_long)
+        why = native.refusal_in(list(eng.log)[-40:])
         if not why or binary is None:
             return result
         native.remember_refusal(binary, model, why)
         result = eng.start(model, native_model=False)      # a start clears the log: the reason goes after it
         eng.note(f"the native engine does not load {model} on this machine ({why}); started on the Python line")
+        return result
+
+    def refused_or_running() -> bool:
+        """After a native start: whether it stopped at once (a refusal comes before any weight is read), its log read to
+        the last line. False while it loads or serves."""
+
+        from . import native
+
+        end = time.time() + 8
+        while time.time() < end:
+            lines = list(eng.log)[-20:]
+            if native.refusal_in(lines) or native.context_refusal(lines) or eng.exit_code is not None or eng.health().ok:
+                break
+            time.sleep(0.25)
+        lines = list(eng.log)[-20:]
+        if eng.owned and not native.refusal_in(lines) and not native.context_refusal(lines):
+            return False
+        return eng.wait_stopped(5)                          # still there: nothing is started over it
+
+    def start_shorter(model: str, drafter: str | None, refused: int) -> dict:
+        """The engine sized its streams and found no room for ``refused`` tokens of context (1.2 on a Mac whose memory
+        the weights mostly take): started again at half, down to 4,096, for this start only; Settings keeps its own."""
+
+        from . import native
+
+        kept, context, result, fits = s.context, refused, {}, False
+        try:
+            while context > 4096 and not fits:
+                context //= 2
+                s.context = context
+                result = eng.start(model, native_model=True, drafter=drafter)
+                fits = not refused_or_running() or not native.context_refusal(list(eng.log)[-40:])
+        finally:
+            s.context = kept
+        eng.note(f"this machine's memory has no room for {refused:,} tokens of context beside {model}'s weights: " + (
+            f"started at {context:,} (Settings, Longest conversation, to choose it)" if fits else
+            f"not even {context:,}; a smaller model, or fewer streams (--parallel 1 in Settings' extra flags)"))
         return result
 
     async def held_in_thread(who: str, work: Any) -> Any:
