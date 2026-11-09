@@ -13,11 +13,21 @@ installed engine offers (`capabilities --json`) and takes the newest native rele
 (`.github/workflows/engine-canary.yml`) runs it against the latest TensorFold release, so a change in the engine shows
 up here first. `docs/features.md` describes every screen and the module behind it.
 
+## Install
+
+With [uv](https://docs.astral.sh/uv/), from this repository (Python 3.11 or later; the page is prebuilt, no Node):
+
+```bash
+uv tool install git+https://github.com/Stephane-Eden/TensorFold-Studio     # the `tensorfold-studio` command
+uv tool upgrade tensorfold-studio                                           # later, to the latest main
+uvx --from git+https://github.com/Stephane-Eden/TensorFold-Studio tensorfold-studio   # or try it without installing
+```
+
+`git+https://…@<tag>` installs a given release instead of the latest `main`. The Studio is not on PyPI.
+
 ## Run it
 
 ```bash
-uv venv .venv && . .venv/bin/activate          # or python -m venv
-uv pip install -e '.[dev]'
 tensorfold-studio                               # http://127.0.0.1:8090, opens the page
 tensorfold-studio --mock-engine                 # without a model: a stand-in engine on port 8080
 tensorfold-studio --engine-url http://spark.local:8080   # watch a TensorFold running elsewhere
@@ -26,6 +36,14 @@ tensorfold-studio service install               # keep it running (launchd on ma
 ```
 
 TensorFold itself: `curl -fsSL https://tensorfold.dev/install.sh | sh` (see its README).
+
+## Work on it
+
+```bash
+git clone https://github.com/Stephane-Eden/TensorFold-Studio && cd TensorFold-Studio
+uv venv .venv && . .venv/bin/activate          # or python -m venv
+uv pip install -e '.[dev]'
+```
 
 Tests: `pytest` and `cd ui && npm test`; lint: `ruff check`. The page is prebuilt in `studio/ui_dist/`, so running the
 Studio needs no Node; to work on the page: `cd ui && npm install && npm run dev` (proxies `/api` and `/engine` to the
