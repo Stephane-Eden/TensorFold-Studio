@@ -283,7 +283,8 @@ def main(argv: list[str]) -> int:
         return 0
     if a.action == "install" and temporary_environment():
         print("this tensorfold-studio runs from uv's cache (uvx), which `uv cache clean` empties: the service could not "
-              "start again. Install it for good first, then run this again:\n  uv tool install tensorfold-studio\n"
+              "start again. Install it for good first, then run this again:\n"
+              "  uv tool install git+https://github.com/Stephane-Eden/TensorFold-Studio\n"
               "  tensorfold-studio service install", file=sys.stderr)
         return 2
     try:
