@@ -1,14 +1,17 @@
 # TensorFold Studio
 
 A web interface for [TensorFold](https://github.com/ashhart/TensorFold): pick a model that fits the machine, run it,
-watch it work, chat with it, teach it (Living Weights), measure it and connect tools to it, from a browser tab. In daily
-use on a Mac mini M6 (Metal) and two DGX Spark GB10 (CUDA). Tested with TensorFold 1.0.11 on the Mac and 1.0.9 on
-the Sparks: those are the releases installed there for now, not a limit, as the Studio reads what the installed engine
-offers (`capabilities --json`) and takes the newest native release it finds. Working name: the TensorFold name and
-logo are yours, and their use here is for you to agree to (`docs/questions-for-ash.md`, A1).
+watch it work, chat with it, teach it (Living Weights), measure it and connect tools to it, from a browser tab.
 
-`docs/features.md` describes every screen and the module behind it; `docs/questions-for-ash.md` lists what the Studio
-would like from the engine, with the bugs found on 1.0.7 and checked again on 1.0.9.
+**An independent project, not part of TensorFold.** TensorFold ships its own web interface, TensorFold Web
+(`tensorfold web`), which began from this Studio; the two have gone their own ways since. The Studio is for those who
+prefer its screens. TensorFold is Ash Hart's work; questions about the engine belong in
+[its repository](https://github.com/ashhart/TensorFold), questions about the Studio here.
+
+In daily use on a Mac mini M6 (Metal) and two DGX Spark GB10 (CUDA), with TensorFold 1.2.5. The Studio reads what the
+installed engine offers (`capabilities --json`) and takes the newest native release it finds; a daily check
+(`.github/workflows/engine-canary.yml`) runs it against the latest TensorFold release, so a change in the engine shows
+up here first. `docs/features.md` describes every screen and the module behind it.
 
 ## Run it
 
@@ -22,9 +25,24 @@ tensorfold-studio --host 0.0.0.0 --token <secret>        # reachable from other 
 tensorfold-studio service install               # keep it running (launchd on macOS, a systemd user unit on Linux)
 ```
 
-Tests: `pytest` (430) and `cd ui && npm test`; lint: `ruff check`. The page is prebuilt in `studio/ui_dist/`, so running
-the Studio needs no Node; to work on the page: `cd ui && npm install && npm run dev` (proxies `/api` and `/engine` to
-the Studio on 8090), then `npm run build` to refresh `studio/ui_dist/`.
+TensorFold itself: `curl -fsSL https://tensorfold.dev/install.sh | sh` (see its README).
+
+Tests: `pytest` and `cd ui && npm test`; lint: `ruff check`. The page is prebuilt in `studio/ui_dist/`, so running the
+Studio needs no Node; to work on the page: `cd ui && npm install && npm run dev` (proxies `/api` and `/engine` to the
+Studio on 8090), then `npm run build` to refresh `studio/ui_dist/`.
+
+## Beside TensorFold Web
+
+TensorFold Web kept the Studio's defaults, so on one machine:
+
+- **Ports.** Both listen on 8090 and start their engine on 8080. The Studio says so when Web holds them: start it with
+  `--port 8091` (`tensorfold-studio service install --port 8091`), and give its engine another address in Settings,
+  such as `http://127.0.0.1:8081`.
+- **Living copies.** The Studio keeps its own in `~/tensorfold-studio-living` (`TENSORFOLD_STUDIO_LIVING` to choose);
+  `~/tensorfold-living` is Web's. A Studio that used `~/tensorfold-living` before Web was installed keeps it. Each one
+  recovers its folder when it starts, so two of them must never share one: the Studio warns when they do.
+- **Models.** Both use the Hugging Face cache: a model downloaded by one is there for the other, and a model removed by
+  one is gone for both.
 
 ## How it is built
 
@@ -36,27 +54,27 @@ the Studio on 8090), then `npm run build` to refresh `studio/ui_dist/`.
 - `ui/`: TypeScript, React and Vite, built to static files shipped inside the Python package.
 - `tests/`: pytest against a stand-in engine (`studio/mock_engine.py`) that speaks the same HTTP as TensorFold.
 
-The modules larger than CONTRIBUTING's 600 lines (`server.py`, `bench.py`, `living.py`, `engine.py`, `report.py`) split
-naturally (the server by route group); left as they are until you say how the Studio should live in your repository.
-
 ## What it uses from TensorFold
 
-The native binary (`tensorfold-native` or `tensorfold`, found on PATH, `TENSORFOLD_BIN`, Homebrew and the archives'
-usual places):
+The native binary (`tensorfold-native` or `tensorfold`, found on PATH, `TENSORFOLD_BIN`, the installer's `~/.tensorfold`,
+Homebrew and the archives' usual places):
 
 - `capabilities --json`: the families and formats it serves on this chip, the `serve` flags;
 - `info <model>`: a downloaded checkpoint's weights, memory floor and context;
-- `serve <model> --host … --port …` with `--context`, `--thinking`/`--no-thinking`, `--slide` for a copy that learns,
-  `--cortheon` when Settings' Web research is on (off by default), and the API key through `TENSORFOLD_API_KEY` (never on the command line); the startup lines are read for the admitted
-  context, the load time and the CUDA sizing.
+- `serve <model> --host … --port …` with `--context`, `--thinking`/`--no-thinking`, `--slide` and `--slide-graph` for a
+  copy that learns, `--drafter` for a separate draft model, `--cortheon` when Settings' Web research is on (off by
+  default), and the API key through `TENSORFOLD_API_KEY` (never on the command line); the startup lines are read for
+  the admitted context, the load time and the memory sizing.
 
-Its HTTP API: `/health`, `/metrics`, `/v1/models`, `/v1/chat/completions` (streamed, with the `tensorfold` and
-`speculative` blocks, `"draft": false` for the exactness check, log-probabilities for KL), `/v1/completions` with
-`prompt_logprobs` (KL over every position of a fixed text, CUDA from 1.0.8), `/v1/messages`,
-`/v1/responses`, and Living Weights' `/v1/slide/learn` and `/v1/slide/graph`. The frozen Python line (0.6.6) is used
-only for the families the native engine does not serve yet, when it is installed in the Studio's environment.
+Its HTTP API: `/health`, `/metrics`, `/v1/models` (and the model's capabilities, such as whether thinking can be
+turned off), `/v1/chat/completions` (streamed, with the `tensorfold` and `speculative` blocks, `"draft": false` for the
+exactness check, log-probabilities for KL), `/v1/completions` with `prompt_logprobs` (KL over every position of a fixed
+text), `/v1/messages`, `/v1/responses`, and Living Weights' `/v1/slide/learn` and `/v1/slide/graph`. The frozen Python
+line (0.6.6) is used only for the families the native engine does not serve, when it is installed in the Studio's
+environment.
 
 ## License
 
-Apache License 2.0, as TensorFold. The logos in `ui/src/assets/` belong to their owners; each folder's README says
-where each one comes from.
+Apache License 2.0, as TensorFold. "TensorFold" names Ash Hart's engine, which this Studio drives; the Studio is not
+endorsed by it. The logos in `ui/src/assets/` belong to their owners; each folder's README says where each one comes
+from.

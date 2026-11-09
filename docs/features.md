@@ -1,7 +1,7 @@
 # TensorFold Studio: what it does today
 
-A short map of the Studio as of 14 October 2026, by screen, with the module behind each part and what is still open.
-The engine questions and bug reports are in `questions-for-ash.md`.
+A short map of the Studio as of 9 November 2026, by screen, with the module behind each part and what is still open.
+TensorFold Studio is independent of TensorFold, whose own interface is TensorFold Web (see the README).
 
 ## Two layers, and Home
 
@@ -170,7 +170,9 @@ comparison names its two sides the same way.
 
 TensorFold 1.0.7 teaches a served Nemotron facts into its own weights (`serve <folder> --slide`). The Studio:
 
-- **Living copies.** A teachable copy of a downloaded model, as real files under `~/tensorfold-living` (an APFS clone
+- **Living copies.** A teachable copy of a downloaded model, as real files under `~/tensorfold-studio-living`
+  (`TENSORFOLD_STUDIO_LIVING` to choose; `~/tensorfold-living` for a Studio that used it before TensorFold Web
+  came) (an APFS clone
   on a Mac, a checked 18 GB copy on Linux, refused if a link remains), served from Teach with `--slide` and its own
   fact graph file; where learning cannot run (no 1.0.7, a GPU other than a GB10) it is served without, and says so.
 - **Preview before learning.** The copy lists the facts a text holds (JSON, constrained), each checked against the text:
@@ -291,5 +293,5 @@ TensorFold 1.0.7 teaches a served Nemotron facts into its own weights (`serve <f
 - Step 5: images, once a vision model is served natively.
 - Step 6: power (needs root on the Sparks) and speed-up groups (needs TensorFold's speed-up mode on our machines);
   the fleet view, adding a machine, the usage history and the service are done.
-- Step 7: publishing (PyPI, Homebrew, `uvx`) waits on Stéphane and Ash; everything else in it is done. Optional: a
+- Step 7: publishing (PyPI, Homebrew, `uvx`) is next; everything else in it is done. Optional: a
   community score by machine.
